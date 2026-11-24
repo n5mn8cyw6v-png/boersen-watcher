@@ -54,10 +54,11 @@ AGENDA_DE = {
 
 
 def market_open(now):
+    """8-18 Uhr New York: vorbörslich bis kurz nach Handelsschluss,
+    damit Quartalszahlen nach Börsenschluss (meist ca. 16:05) noch erfasst werden."""
     if now.weekday() >= 5:
         return False
-    m = now.hour * 60 + now.minute
-    return 9 * 60 + 30 <= m < 16 * 60
+    return 8 <= now.hour < 18
 
 
 def load_json(path, default):
