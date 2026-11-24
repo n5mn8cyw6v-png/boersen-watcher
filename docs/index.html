@@ -1,0 +1,158 @@
+<!doctype html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex">
+<title>Börsen-Watcher</title>
+<style>
+  :root {
+    --bg: #f6f5f2; --card: #ffffff; --text: #1c1c1a; --muted: #6b6a65; --line: #e4e2dc;
+    --up: #127a3e; --up-bg: #e3f4ea; --down: #b3261e; --down-bg: #fbe7e5; --accent: #2b55c6;
+    --chip: #efede8;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #141413; --card: #1e1e1c; --text: #ecebe6; --muted: #9c9a93; --line: #2e2d2a;
+      --up: #5cc98a; --up-bg: #183224; --down: #f08a82; --down-bg: #3a1d1b; --accent: #8aa8ff;
+      --chip: #2a2927;
+    }
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--text);
+    font: 15px/1.5 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; }
+  main { max-width: 760px; margin: 0 auto; padding: 20px 16px 48px; }
+  h1 { font-size: 22px; margin: 0 0 2px; }
+  h2 { font-size: 13px; text-transform: uppercase; letter-spacing: .06em; color: var(--muted);
+    margin: 28px 0 10px; font-weight: 600; }
+  .sub { color: var(--muted); font-size: 13px; }
+  .note { background: var(--chip); border-radius: 10px; padding: 10px 12px; font-size: 13px;
+    color: var(--muted); margin-top: 12px; }
+  .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 8px; }
+  .tile { background: var(--card); border: 1px solid var(--line); border-radius: 12px; padding: 10px 12px; }
+  .tile .n { font-size: 12px; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .tile .p { font-size: 17px; font-weight: 600; font-variant-numeric: tabular-nums; }
+  .chg { display: inline-block; font-size: 13px; font-weight: 600; border-radius: 6px; padding: 0 6px;
+    font-variant-numeric: tabular-nums; }
+  .up { color: var(--up); background: var(--up-bg); }
+  .down { color: var(--down); background: var(--down-bg); }
+  .flat { color: var(--muted); background: var(--chip); }
+  .card { background: var(--card); border: 1px solid var(--line); border-radius: 12px;
+    padding: 12px 14px; margin-bottom: 8px; }
+  .card .t { font-weight: 600; }
+  .card .meta { font-size: 12px; color: var(--muted); margin: 2px 0 6px; }
+  .card p { margin: 4px 0; font-size: 14px; }
+  .lbl { font-weight: 600; }
+  .card a { color: var(--accent); font-size: 13px; text-decoration: none; }
+  .day { font-size: 13px; font-weight: 600; margin: 14px 0 6px; }
+  .filters { display: flex; gap: 6px; flex-wrap: wrap; margin-bottom: 10px; }
+  .filters button { border: 1px solid var(--line); background: var(--card); color: var(--text);
+    border-radius: 999px; padding: 4px 12px; font: inherit; font-size: 13px; cursor: pointer; }
+  .filters button[aria-pressed="true"] { background: var(--text); color: var(--bg); border-color: var(--text); }
+  .status { font-size: 13px; color: var(--muted); }
+  .status span { display: inline-block; margin: 0 10px 4px 0; }
+  .empty { color: var(--muted); font-size: 14px; }
+</style>
+</head>
+<body>
+<main>
+  <h1>Börsen-Watcher</h1>
+  <div class="sub" id="updated">Lädt …</div>
+  <div class="note">Nur Information zum Nachprüfen, kein Handelssignal und keine Anlageberatung.
+    „Typisch“ beschreibt, wie Märkte in der Vergangenheit oft reagiert haben, nicht, was passieren wird.</div>
+
+  <h2>Kurse heute</h2>
+  <div class="grid" id="prices"></div>
+
+  <h2>Termine (nächste 14 Tage)</h2>
+  <div id="agenda"></div>
+
+  <h2>Meldungen</h2>
+  <div class="filters" id="filters"></div>
+  <div id="items"></div>
+
+  <h2>Status der Quellen</h2>
+  <div class="status" id="sources"></div>
+</main>
+<script>
+const fmtDate = new Intl.DateTimeFormat("de-AT", { weekday: "short", day: "2-digit", month: "2-digit" });
+const fmtTime = new Intl.DateTimeFormat("de-AT", { hour: "2-digit", minute: "2-digit" });
+const fmtFull = new Intl.DateTimeFormat("de-AT", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" });
+const esc = s => String(s ?? "").replace(/[&<>"]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+
+function chg(pct, suffix = "") {
+  if (pct == null || isNaN(pct)) return "";
+  const cls = pct > 0.05 ? "up" : pct < -0.05 ? "down" : "flat";
+  const arrow = cls === "up" ? "▲" : cls === "down" ? "▼" : "■";
+  return `<span class="chg ${cls}">${arrow} ${pct > 0 ? "+" : ""}${pct.toFixed(2).replace(".", ",")} %${suffix}</span>`;
+}
+
+const FILTERS = [["all", "Alle"], ["earnings", "Quartalszahlen"], ["fed", "Fed"], ["company", "Firmen"], ["ipo", "IPOs"]];
+let filter = "all", DATA = null;
+
+function renderItems() {
+  const prices = DATA.prices || {};
+  const list = (DATA.items || []).filter(i => filter === "all" || i.kind === filter);
+  document.getElementById("items").innerHTML = list.length ? list.map(i => {
+    const now = i.symbol && prices[i.symbol]?.price;
+    const since = (now && i.price_at) ? (now / i.price_at - 1) * 100 : null;
+    const sinceTxt = since != null
+      ? `<p><span class="lbl">Seitdem:</span> ${esc(i.symbol)} ${chg(since)}</p>` : "";
+    return `<div class="card">
+      <div class="t">${esc(i.title)}</div>
+      <div class="meta">${i.time ? fmtFull.format(new Date(i.time)) : ""} · ${esc(i.source)}</div>
+      <p><span class="lbl">Was ist das?</span> ${esc(i.what)}</p>
+      <p><span class="lbl">Typisch:</span> ${esc(i.typical)}</p>
+      ${sinceTxt}
+      <a href="${esc(i.link)}" target="_blank" rel="noopener">Original öffnen →</a>
+    </div>`;
+  }).join("") : `<div class="empty">Noch keine Meldungen in dieser Kategorie.</div>`;
+}
+
+function render(d) {
+  DATA = d;
+  document.getElementById("updated").textContent =
+    "Zuletzt aktualisiert: " + (d.updated ? fmtFull.format(new Date(d.updated)) + " Uhr" : "–");
+
+  const p = d.prices || {};
+  const keys = Object.keys(p);
+  document.getElementById("prices").innerHTML = keys.length ? keys.map(s => `
+    <div class="tile"><div class="n">${esc(p[s].name)} · ${esc(s)}</div>
+      <div class="p">${p[s].price.toFixed(2).replace(".", ",")} $</div>${chg(p[s].change_pct)}</div>`).join("")
+    : `<div class="empty">Noch keine Kursdaten (Finnhub-Schlüssel fehlt oder Börse noch nicht offen).</div>`;
+
+  const ag = d.agenda || [];
+  let html = "", lastDay = "";
+  for (const e of ag) {
+    const local = new Date(e.local), day = fmtDate.format(local);
+    if (day !== lastDay) { html += `<div class="day">${esc(day)}</div>`; lastDay = day; }
+    html += `<div class="card">
+      <div class="t">${fmtTime.format(local)} Uhr · ${esc(e.label)}</div>
+      <div class="meta">${esc(e.ny.slice(11, 16))} in New York</div>
+      ${e.what ? `<p><span class="lbl">Was ist das?</span> ${esc(e.what)}</p>` : ""}
+      ${e.typical ? `<p><span class="lbl">Typisch:</span> ${esc(e.typical)}</p>` : ""}
+    </div>`;
+  }
+  document.getElementById("agenda").innerHTML = html || `<div class="empty">Keine wichtigen Termine in den nächsten 14 Tagen.</div>`;
+
+  document.getElementById("filters").innerHTML = FILTERS.map(([k, l]) =>
+    `<button data-k="${k}" aria-pressed="${k === filter}">${l}</button>`).join("");
+  renderItems();
+
+  const src = d.sources || {};
+  document.getElementById("sources").innerHTML = Object.entries(src).map(([k, v]) =>
+    `<span>${v === "ok" ? "🟢" : "🔴"} ${esc(k)}${v === "ok" ? "" : " – " + esc(v)}</span>`).join("") || "–";
+}
+
+document.getElementById("filters").addEventListener("click", e => {
+  const b = e.target.closest("button"); if (!b) return;
+  filter = b.dataset.k;
+  document.querySelectorAll("#filters button").forEach(x => x.setAttribute("aria-pressed", x.dataset.k === filter));
+  renderItems();
+});
+
+fetch("data.json?t=" + Date.now()).then(r => r.json()).then(render)
+  .catch(() => { document.getElementById("updated").textContent = "Daten konnten nicht geladen werden."; });
+</script>
+</body>
+</html>

@@ -1,7 +1,9 @@
-"""Börsen-Watcher: schickt Push-Nachrichten per ntfy bei wichtigen Meldungen.
+"""Börsen-Watcher: schickt Push-Nachrichten per ntfy bei wichtigen Meldungen
+und schreibt eine Übersichtsseite (docs/).
 
 Quellen: SEC EDGAR (große US-Techwerte, IPOs), Fed-Pressemitteilungen,
-Wirtschaftstermine (BLS, BEA, FOMC). Kein Handelssignal, keine Anlageberatung.
+Wirtschaftstermine (BLS, BEA, FOMC), Kurse (Finnhub).
+Kein Handelssignal, keine Anlageberatung.
 """
 
 import json
@@ -10,16 +12,20 @@ import re
 import sys
 import time
 import xml.etree.ElementTree as ET
-from datetime import datetime, timezone
+from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 from zoneinfo import ZoneInfo
 
 import requests
 
+import explain
+
 BASE = Path(__file__).parent
 CONFIG_FILE = BASE / "config.json"
 STATE_FILE = BASE / "seen.json"
+DATA_FILE = BASE / "docs" / "data.json"
 NY = ZoneInfo("America/New_York")
+WIEN = ZoneInfo("Europe/Vienna")
 NTFY_URL = "https://ntfy.sh"
 FED_FEED = "https://www.federalreserve.gov/feeds/press_all.xml"
 SEC_FEED = (
@@ -29,8 +35,10 @@ SEC_FEED = (
 IPO_FEED = "https://www.sec.gov/cgi-bin/browse-edgar?action=getcurrent&type=424B4&count=40&output=atom"
 BLS_ICS = "https://www.bls.gov/schedule/news_release/bls.ics"
 BEA_ICS = "https://www.bea.gov/news/schedule/ics/online-calendar-subscription.ics"
+FINNHUB_QUOTE = "https://finnhub.io/api/v1/quote"
 DISCLAIMER = "Zum Nachprüfen, kein Handelssignal."
 MAX_SEEN = 3000
+MAX_HISTORY = 150
 ATOM = "{http://www.w3.org/2005/Atom}"
 ITEMS_DE = {
     "2.02": "Quartalszahlen",
@@ -41,16 +49,6 @@ ITEMS_DE = {
     "8.01": "Sonstige Meldung",
 }
 FORMS_DE = {"4": "Insider-Transaktion", "10-Q": "Quartalsbericht", "10-K": "Jahresbericht"}
-AGENDA_DE = {
-    "Consumer Price Index": "Inflation (CPI)",
-    "Producer Price Index": "Erzeugerpreise (PPI)",
-    "Employment Situation": "Arbeitsmarktbericht",
-    "Job Openings": "Offene Stellen (JOLTS)",
-    "Personal Income and Outlays": "Konsum & PCE-Inflation",
-    "Gross Domestic Product": "BIP",
-    "Retail Sales": "Einzelhandelsumsätze",
-    "Real Earnings": "Reallöhne",
-}
 
 
 def market_open(now):
@@ -106,13 +104,16 @@ def fetch_company(name, spec, cfg, contact):
         if form == "8-K" and only_items is not None and not only_items & set(nums):
             continue
         labels = [ITEMS_DE[n] for n in nums if n in ITEMS_DE]
-        what = ", ".join(labels) if labels else FORMS_DE.get(form, form)
-        prefix = "📊 " if "2.02" in nums else ""
+        what_label = ", ".join(labels) if labels else FORMS_DE.get(form, form)
+        what, typical = explain.sec(form, nums)
         items.append({
             "src": f"sec:{name}",
             "id": "sec:" + (e.findtext(f"{ATOM}id") or ""),
-            "title": f"{prefix}{name}: {what}",
-            "text": f"Form {form} ({desc or 'SEC-Meldung'})",
+            "kind": "earnings" if "2.02" in nums else "company",
+            "title": f"{'📊 ' if '2.02' in nums else ''}{name}: {what_label}",
+            "what": what,
+            "typical": typical,
+            "symbol": spec.get("ticker"),
             "source": "SEC EDGAR",
             "link": e.find(f"{ATOM}link").get("href"),
         })
@@ -125,12 +126,14 @@ def fetch_ipos(contact):
     for e in root.findall(f"{ATOM}entry"):
         title = (e.findtext(f"{ATOM}title") or "").strip()
         m = re.match(r"424B4 - (.+?) \(\d+\)", title)
-        company = m.group(1) if m else title
         items.append({
             "src": "ipo",
             "id": "ipo:" + (e.findtext(f"{ATOM}id") or title),
-            "title": f"🚀 Platzierung/IPO: {company}",
-            "text": "Endgültiger Prospekt (424B4) eingereicht: Preis steht fest. Kann auch eine Folgeplatzierung sein.",
+            "kind": "ipo",
+            "title": f"🚀 Börsengang/Platzierung: {m.group(1) if m else title}",
+            "what": explain.IPO[0],
+            "typical": explain.IPO[1],
+            "symbol": None,
             "source": "SEC EDGAR",
             "link": e.find(f"{ATOM}link").get("href"),
         })
@@ -149,11 +152,15 @@ def fetch_fed(cfg):
         link = (it.findtext("link") or "").strip()
         if not matches(f"{title} {desc}", cfg["keywords"]):
             continue
+        what, typical = explain.fed(title)
         items.append({
             "src": "fed",
             "id": "fed:" + (it.findtext("guid") or link),
+            "kind": "fed",
             "title": "🏦 Fed: " + title,
-            "text": desc[:200],
+            "what": what,
+            "typical": typical,
+            "symbol": cfg.get("market_symbol", "SPY"),
             "source": "Federal Reserve",
             "link": link,
         })
@@ -176,21 +183,40 @@ def ics_events(text):
         yield dt, summary.group(1).replace("\\,", ",").strip()
 
 
-def fetch_agenda(cfg, contact, today):
+def fetch_agenda(cfg, contact, first, last):
+    """Wichtige Termine zwischen first und last (jeweils inklusive)."""
     headers = {"User-Agent": f"BoersenWatcher {contact}"}
     events = []
     for name, url in (("BLS", BLS_ICS), ("BEA", BEA_ICS)):
         r = requests.get(url, headers=headers, timeout=30)
         r.raise_for_status()
         for dt, title in ics_events(r.text):
-            if dt.date() == today and matches(title, cfg["agenda_keywords"]):
-                de = next((v for k, v in AGENDA_DE.items() if k.lower() in title.lower()), None)
-                events.append((dt, f"{de}: {title}" if de else title))
-    if today.isoformat() in cfg.get("fomc_decision_dates", []):
-        events.append((datetime(today.year, today.month, today.day, 14, 0, tzinfo=NY),
-                       "FOMC-Zinsentscheid, Pressekonferenz 14:30"))
-    events.sort()
-    return events
+            if first <= dt.date() <= last and matches(title, cfg["agenda_keywords"]):
+                events.append((dt, title))
+    for d in cfg.get("fomc_decision_dates", []):
+        day = date.fromisoformat(d)
+        if first <= day <= last:
+            events.append((datetime(day.year, day.month, day.day, 14, 0, tzinfo=NY), "FOMC"))
+    out = []
+    for dt, title in sorted(events):
+        label, what, typical = explain.agenda(title)
+        out.append({"ny": dt.isoformat(), "local": dt.astimezone(WIEN).isoformat(),
+                    "label": label, "original": title, "what": what, "typical": typical})
+    return out
+
+
+# ---------- Kurse ----------
+
+def fetch_prices(cfg, key):
+    """Aktueller Kurs und Tagesveränderung je Symbol (Finnhub, kostenlos)."""
+    prices = {}
+    for sym, name in cfg.get("watchlist", {}).items():
+        r = requests.get(FINNHUB_QUOTE, params={"symbol": sym, "token": key}, timeout=20)
+        r.raise_for_status()
+        q = r.json()
+        if q.get("c"):
+            prices[sym] = {"name": name, "price": q["c"], "change_pct": q.get("dp"), "prev_close": q.get("pc")}
+    return prices
 
 
 # ---------- Ablauf ----------
@@ -200,6 +226,7 @@ def main():
     dry = os.environ.get("DRY_RUN") == "true"
     topic = os.environ.get("NTFY_TOPIC", "")
     contact = os.environ.get("SEC_CONTACT_EMAIL", "")
+    finnhub = os.environ.get("FINNHUB_KEY", "")
     cfg = load_json(CONFIG_FILE, {})
     now = datetime.now(NY)
 
@@ -208,10 +235,10 @@ def main():
         return
 
     state = load_json(STATE_FILE, {})
-    state.setdefault("ids", [])
-    state.setdefault("failures", {})
-    state.setdefault("alerted", {})
-    state.setdefault("init_sources", [])
+    for k, v in (("ids", []), ("failures", {}), ("alerted", {}), ("init_sources", [])):
+        state.setdefault(k, v)
+    state["failures"].pop("SEC EDGAR", None)  # alter Name aus Version 1
+    state["alerted"].pop("SEC EDGAR", None)
     if state["ids"] and not state["init_sources"]:
         state["init_sources"] = ["sec:Nvidia", "fed"]  # Altbestand aus Version 1
 
@@ -225,6 +252,8 @@ def main():
         sys.exit("NTFY_TOPIC fehlt.")
     if not contact:
         sys.exit("SEC_CONTACT_EMAIL fehlt.")
+
+    data = load_json(DATA_FILE, {"items": []})
 
     def send(title, message, link=None, tags=None):
         if dry:
@@ -247,15 +276,27 @@ def main():
                 state["alerted"][name] = True
             return None
 
-    # Tagesvorschau Wirtschaftstermine (einmal pro Handelstag ab 8 Uhr New York)
-    if agenda_due:
-        events = guarded("Wirtschaftstermine", lambda: fetch_agenda(cfg, contact, now.date()))
-        if events is not None:
-            if events:
-                lines = [f"{dt:%H:%M} NY ({dt.astimezone(ZoneInfo('Europe/Vienna')):%H:%M} bei dir): {t}"
-                         for dt, t in events]
-                send("📅 Termine heute", "\n".join(lines))
+    # Termine: Vorschau 14 Tage für die Seite, Tagesübersicht als Push
+    agenda = guarded("Wirtschaftstermine",
+                     lambda: fetch_agenda(cfg, contact, now.date(), now.date() + timedelta(days=14)))
+    if agenda is not None:
+        data["agenda"] = agenda
+        if agenda_due:
+            today = [e for e in agenda if e["ny"][:10] == now.date().isoformat()]
+            if today:
+                lines = []
+                for e in today:
+                    t_ny, t_local = e["ny"][11:16], e["local"][11:16]
+                    lines.append(f"{t_ny} NY / {t_local} bei dir: {e['label']}\n→ {e['typical']}")
+                send("📅 Termine heute", "\n\n".join(lines))
             state["agenda_sent"] = now.date().isoformat()
+
+    prices = {}
+    if finnhub and (force or is_open):
+        prices = guarded("Kurse (Finnhub)", lambda: fetch_prices(cfg, finnhub)) or {}
+        if prices:
+            data["prices"] = prices
+            data["prices_updated"] = now.isoformat()
 
     if force or is_open:
         found, ok = [], set()
@@ -280,21 +321,33 @@ def main():
         if fresh:
             print(f"Neue Quellen eingerichtet: {', '.join(sorted(fresh))}")
             state["init_sources"] += sorted(fresh)
-            if force:
-                send("✅ Watcher erweitert", f"Neu dabei: {', '.join(sorted(fresh))}. Alte Meldungen übersprungen.")
 
         limit = cfg.get("max_per_run", 5)
+        for item in to_send:
+            sym = item.get("symbol")
+            item["time"] = now.isoformat()
+            item["price_at"] = prices.get(sym, {}).get("price") if sym else None
+            data["items"].insert(0, {k: v for k, v in item.items() if k != "src"})
         for item in to_send[:limit]:
-            send(item["title"], f"{DISCLAIMER}\n{item['text']}\nQuelle: {item['source']}", item["link"])
+            send(item["title"], f"{DISCLAIMER}\n\nWas ist das? {item['what']}\n\nTypisch: {item['typical']}",
+                 item["link"])
         if len(to_send) > limit:
-            print(f"{len(to_send) - limit} weitere Treffer nicht gesendet (Limit).")
-        if force and not to_send and not fresh:
+            print(f"{len(to_send) - limit} weitere Treffer nicht gesendet (Limit), stehen aber auf der Seite.")
+        if force and not to_send:
             send("🧪 Test", "Watcher läuft. Gerade keine neuen Meldungen.")
         print(f"{len(to_send)} neue Treffer.")
         state["ids"] = (state["ids"] + [i["id"] for i in new])[-MAX_SEEN:]
 
-    if not dry:
+    data["items"] = data["items"][:MAX_HISTORY]
+    data["updated"] = now.isoformat()
+    data["sources"] = {k: ("ok" if v == 0 else f"{v}x Fehler") for k, v in state["failures"].items()}
+
+    if dry:
+        print(json.dumps({k: data[k] for k in ("agenda", "sources") if k in data}, ensure_ascii=False)[:1500])
+    else:
         STATE_FILE.write_text(json.dumps(state, indent=1, ensure_ascii=False), encoding="utf-8")
+        DATA_FILE.parent.mkdir(exist_ok=True)
+        DATA_FILE.write_text(json.dumps(data, indent=1, ensure_ascii=False), encoding="utf-8")
 
 
 if __name__ == "__main__":

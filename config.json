@@ -2,22 +2,75 @@
   "paused": false,
   "max_per_run": 5,
   "failure_alert_after": 3,
-
   "sec_companies": {
-    "Nvidia":    {"cik": "1045810", "forms": ["8-K", "10-Q", "10-K", "4"]},
-    "Apple":     {"cik": "320193",  "forms": ["8-K"]},
-    "Microsoft": {"cik": "789019",  "forms": ["8-K"]},
-    "Alphabet":  {"cik": "1652044", "forms": ["8-K"]},
-    "Amazon":    {"cik": "1018724", "forms": ["8-K"]},
-    "Meta":      {"cik": "1326801", "forms": ["8-K"]},
-    "Tesla":     {"cik": "1318605", "forms": ["8-K"]},
-    "Broadcom":  {"cik": "1730168", "forms": ["8-K"]}
+    "Nvidia": {
+      "cik": "1045810",
+      "forms": [
+        "8-K",
+        "10-Q",
+        "10-K",
+        "4"
+      ],
+      "ticker": "NVDA"
+    },
+    "Apple": {
+      "cik": "320193",
+      "forms": [
+        "8-K"
+      ],
+      "ticker": "AAPL"
+    },
+    "Microsoft": {
+      "cik": "789019",
+      "forms": [
+        "8-K"
+      ],
+      "ticker": "MSFT"
+    },
+    "Alphabet": {
+      "cik": "1652044",
+      "forms": [
+        "8-K"
+      ],
+      "ticker": "GOOGL"
+    },
+    "Amazon": {
+      "cik": "1018724",
+      "forms": [
+        "8-K"
+      ],
+      "ticker": "AMZN"
+    },
+    "Meta": {
+      "cik": "1326801",
+      "forms": [
+        "8-K"
+      ],
+      "ticker": "META"
+    },
+    "Tesla": {
+      "cik": "1318605",
+      "forms": [
+        "8-K"
+      ],
+      "ticker": "TSLA"
+    },
+    "Broadcom": {
+      "cik": "1730168",
+      "forms": [
+        "8-K"
+      ],
+      "ticker": "AVGO"
+    }
   },
-  "sec_8k_items_only": ["2.02", "2.01", "1.01", "5.02"],
+  "sec_8k_items_only": [
+    "2.02",
+    "2.01",
+    "1.01",
+    "5.02"
+  ],
   "sec_8k_items_only_note": "Gilt nicht für Nvidia (dort kommen alle 8-K). 2.02 = Quartalszahlen, 2.01 = Übernahme, 1.01 = wichtiger Vertrag, 5.02 = Vorstandswechsel.",
-
   "ipos": true,
-
   "agenda": true,
   "agenda_keywords": [
     "Consumer Price Index",
@@ -29,9 +82,18 @@
     "Retail Sales",
     "Real Earnings"
   ],
-  "fomc_decision_dates": ["2026-12-09"],
-  "fomc_note": "Zinsentscheide (2. Sitzungstag). 2027er Termine nachtragen, sobald die Fed sie veröffentlicht: federalreserve.gov/monetarypolicy/fomccalendars.htm",
-
+  "fomc_decision_dates": [
+    "2026-12-09",
+    "2027-01-27",
+    "2027-03-17",
+    "2027-04-28",
+    "2027-06-09",
+    "2027-07-28",
+    "2027-09-15",
+    "2027-10-27",
+    "2027-11-17"
+  ],
+  "fomc_note": "Zinsentscheide (2. Sitzungstag), Quelle: federalreserve.gov/monetarypolicy/fomccalendars.htm. 2028 nachtragen, sobald veröffentlicht.",
   "keywords": [
     "Nvidia",
     "FOMC",
@@ -54,5 +116,21 @@
     "Inflation",
     "Übernahme",
     "Quartalszahlen"
-  ]
+  ],
+  "market_symbol": "SPY",
+  "watchlist": {
+    "SPY": "S&P 500 (ETF)",
+    "URTH": "MSCI World (ETF)",
+    "XLK": "S&P 500 IT (ETF)",
+    "QQQ": "Nasdaq 100 (ETF)",
+    "NVDA": "Nvidia",
+    "AAPL": "Apple",
+    "MSFT": "Microsoft",
+    "GOOGL": "Alphabet",
+    "AMZN": "Amazon",
+    "META": "Meta",
+    "TSLA": "Tesla",
+    "AVGO": "Broadcom"
+  },
+  "watchlist_note": "US-Kürzel. Die ETFs sind US-Gegenstücke zu deinen Sparplänen, Kursrichtung ist vergleichbar."
 }
