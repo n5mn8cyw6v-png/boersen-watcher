@@ -1,5 +1,18 @@
 {
- "items": [],
+ "items": [
+  {
+   "id": "fed:https://www.federalreserve.gov/newsevents/pressreleases/monetary20261124a.htm",
+   "kind": "fed",
+   "title": "🏦 Fed: Minutes of the Board's discount rate meetings on October 19 and October 28, 2026",
+   "what": "Protokoll zum Diskontsatz (Zins für Notkredite an Banken).",
+   "typical": "Für Aktien meist kaum relevant.",
+   "symbol": "SPY",
+   "source": "Federal Reserve",
+   "link": "https://www.federalreserve.gov/newsevents/pressreleases/monetary20261124a.htm",
+   "time": "2026-11-24T16:55:40.891799-05:00",
+   "price_at": 718.78
+  }
+ ],
  "agenda": [
   {
    "ny": "2026-11-25T08:30:00-05:00",
@@ -26,7 +39,7 @@
    "typical": "Zwiespältig: Viele Jobs = starke Wirtschaft, kann aber Zinssenkungen verzögern. Sehr schwache Zahlen → Angst vor Rezession."
   }
  ],
- "updated": "2026-11-24T09:46:42.979989-05:00",
+ "updated": "2026-11-24T16:55:40.891799-05:00",
  "sources": {
   "Federal Reserve": "ok",
   "SEC Nvidia": "ok",
@@ -34,7 +47,7 @@
   "SEC Microsoft": "ok",
   "SEC Alphabet": "ok",
   "SEC Amazon": "ok",
-  "SEC Meta": "ok",
+  "SEC Meta": "1x Fehler",
   "SEC Tesla": "ok",
   "SEC Broadcom": "ok",
   "SEC IPOs": "ok",
@@ -44,26 +57,26 @@
  "prices": {
   "SPY": {
    "name": "S&P 500 (ETF)",
-   "price": 718.8,
-   "change_pct": -0.4832,
+   "price": 718.78,
+   "change_pct": -0.486,
    "prev_close": 722.29
   },
   "URTH": {
    "name": "MSCI World (ETF)",
-   "price": 194.57,
-   "change_pct": -0.3483,
+   "price": 194.56,
+   "change_pct": -0.3534,
    "prev_close": 195.25
   },
   "XLK": {
    "name": "S&P 500 IT (ETF)",
-   "price": 158.42,
-   "change_pct": -2.4387,
+   "price": 157.09,
+   "change_pct": -3.2578,
    "prev_close": 162.38
   },
   "QQQ": {
    "name": "Nasdaq 100 (ETF)",
-   "price": 642.01,
-   "change_pct": -1.3855,
+   "price": 638.1,
+   "change_pct": -1.9861,
    "prev_close": 651.03
   },
   "NVDA": {
@@ -74,46 +87,46 @@
   },
   "AAPL": {
    "name": "Apple",
-   "price": 352.23,
-   "change_pct": 0.9024,
+   "price": 354.07,
+   "change_pct": 1.4295,
    "prev_close": 349.08
   },
   "MSFT": {
    "name": "Microsoft",
-   "price": 494.59,
-   "change_pct": 0.4244,
+   "price": 496.13,
+   "change_pct": 0.7371,
    "prev_close": 492.5
   },
   "GOOGL": {
    "name": "Alphabet",
-   "price": 279.61,
-   "change_pct": -0.8827,
+   "price": 279.05,
+   "change_pct": -1.0812,
    "prev_close": 282.1
   },
   "AMZN": {
    "name": "Amazon",
-   "price": 253.88,
-   "change_pct": -0.5913,
+   "price": 252.29,
+   "change_pct": -1.2138,
    "prev_close": 255.39
   },
   "META": {
    "name": "Meta",
-   "price": 597.39,
-   "change_pct": -0.0351,
+   "price": 589.82,
+   "change_pct": -1.3019,
    "prev_close": 597.6
   },
   "TSLA": {
    "name": "Tesla",
-   "price": 387.14,
-   "change_pct": 0.4358,
+   "price": 384.68,
+   "change_pct": -0.2024,
    "prev_close": 385.46
   },
   "AVGO": {
    "name": "Broadcom",
-   "price": 301.94,
-   "change_pct": -3.7028,
+   "price": 301.08,
+   "change_pct": -3.977,
    "prev_close": 313.55
   }
  },
- "prices_updated": "2026-11-24T09:46:42.979989-05:00"
+ "prices_updated": "2026-11-24T16:55:40.891799-05:00"
 }

@@ -47,7 +47,8 @@
   "sec:urn:tag:sec.gov,2008:accession-number=0001628280-26-046717",
   "sec:urn:tag:sec.gov,2008:accession-number=0001730168-26-000076",
   "ipo:urn:tag:sec.gov,2008:accession-number=0001104659-26-130740",
-  "ipo:urn:tag:sec.gov,2008:accession-number=0001493152-26-053458"
+  "ipo:urn:tag:sec.gov,2008:accession-number=0001493152-26-053458",
+  "fed:https://www.federalreserve.gov/newsevents/pressreleases/monetary20261124a.htm"
  ],
  "failures": {
   "Federal Reserve": 0,
@@ -56,7 +57,7 @@
   "SEC Microsoft": 0,
   "SEC Alphabet": 0,
   "SEC Amazon": 0,
-  "SEC Meta": 0,
+  "SEC Meta": 1,
   "SEC Tesla": 0,
   "SEC Broadcom": 0,
   "SEC IPOs": 0,
