@@ -211,7 +211,7 @@ def fetch_prices(cfg, key):
     """Aktueller Kurs und Tagesveränderung je Symbol (Finnhub, kostenlos)."""
     prices = {}
     for sym, name in cfg.get("watchlist", {}).items():
-        r = requests.get(FINNHUB_QUOTE, params={"symbol": sym, "token": key}, timeout=20)
+        r = requests.get(FINNHUB_QUOTE, params={"symbol": sym}, headers={"X-Finnhub-Token": key}, timeout=20)
         r.raise_for_status()
         q = r.json()
         if q.get("c"):
