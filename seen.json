@@ -60,7 +60,8 @@
   "SEC Tesla": 0,
   "SEC Broadcom": 0,
   "SEC IPOs": 0,
-  "Wirtschaftstermine": 0
+  "Wirtschaftstermine": 0,
+  "Kurse (Finnhub)": 0
  },
  "alerted": {
   "Federal Reserve": false,
@@ -73,7 +74,8 @@
   "SEC Tesla": false,
   "SEC Broadcom": false,
   "SEC IPOs": false,
-  "Wirtschaftstermine": false
+  "Wirtschaftstermine": false,
+  "Kurse (Finnhub)": false
  },
  "init_sources": [
   "sec:Nvidia",
@@ -86,5 +88,6 @@
   "sec:Meta",
   "sec:Microsoft",
   "sec:Tesla"
- ]
+ ],
+ "agenda_sent": "2026-11-24"
 }
