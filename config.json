@@ -2,10 +2,36 @@
   "paused": false,
   "max_per_run": 5,
   "failure_alert_after": 3,
-  "sec_ciks": {
-    "Nvidia": "1045810"
+
+  "sec_companies": {
+    "Nvidia":    {"cik": "1045810", "forms": ["8-K", "10-Q", "10-K", "4"]},
+    "Apple":     {"cik": "320193",  "forms": ["8-K"]},
+    "Microsoft": {"cik": "789019",  "forms": ["8-K"]},
+    "Alphabet":  {"cik": "1652044", "forms": ["8-K"]},
+    "Amazon":    {"cik": "1018724", "forms": ["8-K"]},
+    "Meta":      {"cik": "1326801", "forms": ["8-K"]},
+    "Tesla":     {"cik": "1318605", "forms": ["8-K"]},
+    "Broadcom":  {"cik": "1730168", "forms": ["8-K"]}
   },
-  "sec_forms": ["8-K", "10-Q", "10-K", "4"],
+  "sec_8k_items_only": ["2.02", "2.01", "1.01", "5.02"],
+  "sec_8k_items_only_note": "Gilt nicht für Nvidia (dort kommen alle 8-K). 2.02 = Quartalszahlen, 2.01 = Übernahme, 1.01 = wichtiger Vertrag, 5.02 = Vorstandswechsel.",
+
+  "ipos": true,
+
+  "agenda": true,
+  "agenda_keywords": [
+    "Consumer Price Index",
+    "Producer Price Index",
+    "Employment Situation",
+    "Job Openings",
+    "Personal Income and Outlays",
+    "Gross Domestic Product",
+    "Retail Sales",
+    "Real Earnings"
+  ],
+  "fomc_decision_dates": ["2026-12-09"],
+  "fomc_note": "Zinsentscheide (2. Sitzungstag). 2027er Termine nachtragen, sobald die Fed sie veröffentlicht: federalreserve.gov/monetarypolicy/fomccalendars.htm",
+
   "keywords": [
     "Nvidia",
     "FOMC",

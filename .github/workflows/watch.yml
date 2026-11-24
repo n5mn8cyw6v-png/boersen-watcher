@@ -2,8 +2,8 @@ name: Börsen-Watcher
 
 on:
   schedule:
-    # Alle 15 Min., Mo-Fr, 13-21 Uhr UTC. Die genaue Börsenzeit prüft das Skript.
-    - cron: "*/15 13-21 * * 1-5"
+    # Alle 15 Min., Mo-Fr, 12-21 Uhr UTC. Die genaue Börsenzeit prüft das Skript.
+    - cron: "*/15 12-21 * * 1-5"
   workflow_dispatch:
     inputs:
       force:
