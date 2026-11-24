@@ -50,7 +50,6 @@
   "ipo:urn:tag:sec.gov,2008:accession-number=0001493152-26-053458"
  ],
  "failures": {
-  "SEC EDGAR": 0,
   "Federal Reserve": 0,
   "SEC Nvidia": 0,
   "SEC Apple": 0,
@@ -60,10 +59,10 @@
   "SEC Meta": 0,
   "SEC Tesla": 0,
   "SEC Broadcom": 0,
-  "SEC IPOs": 0
+  "SEC IPOs": 0,
+  "Wirtschaftstermine": 0
  },
  "alerted": {
-  "SEC EDGAR": false,
   "Federal Reserve": false,
   "SEC Nvidia": false,
   "SEC Apple": false,
@@ -73,7 +72,8 @@
   "SEC Meta": false,
   "SEC Tesla": false,
   "SEC Broadcom": false,
-  "SEC IPOs": false
+  "SEC IPOs": false,
+  "Wirtschaftstermine": false
  },
  "init_sources": [
   "sec:Nvidia",

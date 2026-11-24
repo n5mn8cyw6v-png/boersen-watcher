@@ -1,0 +1,43 @@
+{
+ "items": [],
+ "agenda": [
+  {
+   "ny": "2026-11-25T08:30:00-05:00",
+   "local": "2026-11-25T14:30:00+01:00",
+   "label": "Konsum & PCE-Inflation",
+   "original": "Personal Income and Outlays, October 2026",
+   "what": "Lieblings-Inflationszahl der Fed, dazu Einkommen und Konsum.",
+   "typical": "Wie beim CPI: höhere Inflation als erwartet ist eher schlecht für Aktien."
+  },
+  {
+   "ny": "2026-12-01T10:00:00-05:00",
+   "local": "2026-12-01T16:00:00+01:00",
+   "label": "Offene Stellen (JOLTS)",
+   "original": "Job Openings and Labor Turnover Survey",
+   "what": "Wie viele Stellen Firmen ausgeschrieben haben.",
+   "typical": "Meist kleinere Wirkung, zeigt wie heiß der Arbeitsmarkt ist."
+  },
+  {
+   "ny": "2026-12-04T08:30:00-05:00",
+   "local": "2026-12-04T14:30:00+01:00",
+   "label": "Arbeitsmarktbericht",
+   "original": "Employment Situation",
+   "what": "Neue Jobs und Arbeitslosenquote in den USA.",
+   "typical": "Zwiespältig: Viele Jobs = starke Wirtschaft, kann aber Zinssenkungen verzögern. Sehr schwache Zahlen → Angst vor Rezession."
+  }
+ ],
+ "updated": "2026-11-24T05:52:21.172548-05:00",
+ "sources": {
+  "Federal Reserve": "ok",
+  "SEC Nvidia": "ok",
+  "SEC Apple": "ok",
+  "SEC Microsoft": "ok",
+  "SEC Alphabet": "ok",
+  "SEC Amazon": "ok",
+  "SEC Meta": "ok",
+  "SEC Tesla": "ok",
+  "SEC Broadcom": "ok",
+  "SEC IPOs": "ok",
+  "Wirtschaftstermine": "ok"
+ }
+}
