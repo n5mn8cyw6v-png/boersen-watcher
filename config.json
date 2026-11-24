@@ -1,0 +1,32 @@
+{
+  "paused": false,
+  "max_per_run": 5,
+  "failure_alert_after": 3,
+  "sec_ciks": {
+    "Nvidia": "1045810"
+  },
+  "sec_forms": ["8-K", "10-Q", "10-K", "4"],
+  "keywords": [
+    "Nvidia",
+    "FOMC",
+    "Federal Open Market Committee",
+    "monetary policy",
+    "interest rate",
+    "federal funds",
+    "discount rate",
+    "tariff",
+    "inflation",
+    "CPI",
+    "PCE",
+    "acquisition",
+    "merger",
+    "earnings",
+    "upgrade",
+    "downgrade",
+    "Zinsentscheid",
+    "Zölle",
+    "Inflation",
+    "Übernahme",
+    "Quartalszahlen"
+  ]
+}

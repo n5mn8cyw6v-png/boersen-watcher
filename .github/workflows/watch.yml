@@ -1,0 +1,45 @@
+name: Börsen-Watcher
+
+on:
+  schedule:
+    # Alle 15 Min., Mo-Fr, 13-21 Uhr UTC. Die genaue Börsenzeit prüft das Skript.
+    - cron: "*/15 13-21 * * 1-5"
+  workflow_dispatch:
+    inputs:
+      force:
+        description: "Auch außerhalb der Börsenzeit laufen (Test)"
+        type: boolean
+        default: true
+
+permissions:
+  contents: write
+
+concurrency:
+  group: watcher
+  cancel-in-progress: false
+
+jobs:
+  watch:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install -r requirements.txt
+      - name: Watcher ausführen
+        env:
+          NTFY_TOPIC: ${{ secrets.NTFY_TOPIC }}
+          SEC_CONTACT_EMAIL: ${{ secrets.SEC_CONTACT_EMAIL }}
+          FORCE_RUN: ${{ github.event_name == 'workflow_dispatch' && inputs.force }}
+        run: python watcher.py
+      - name: seen.json zurückschreiben
+        run: |
+          if [ -f seen.json ] && [ -n "$(git status --porcelain seen.json)" ]; then
+            git config user.name "watcher-bot"
+            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+            git add seen.json
+            git commit -m "seen.json aktualisiert"
+            git push
+          fi
