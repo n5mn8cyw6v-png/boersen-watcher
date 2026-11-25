@@ -27,21 +27,30 @@ def quotes(symbols, key):
     return out
 
 
-def analysts(symbol, key):
-    """Analysten-Einschätzungen (Anzahl Kaufen/Halten/Verkaufen), aktuell und vor 3 Monaten."""
-    rows = _get("stock/recommendation", key, symbol=symbol)
-    if not rows:
-        return None
+ACTION = re.compile(r"\b(upgrade[sd]?|downgrade[sd]?|price target|fair value|initiat\w*|reiterat\w*|outperform|underperform|overweight|underweight|equal.weight|neutral rating|buy rating|sell rating|hold rating)\b", re.I)
+UP = re.compile(r"\b(upgrade[sd]?|raises?|raised|lifts?|boosts?|hikes?|outperform|overweight|buy rating)\b", re.I)
+DOWN = re.compile(r"\b(downgrade[sd]?|cuts?|lowers?|lowered|trims?|slashe[sd]|underperform|underweight|sell rating)\b", re.I)
+ANALYST_SOURCES = TRUSTED | {"benzinga"}
 
-    def summary(r):
-        buy, hold, sell = r["strongBuy"] + r["buy"], r["hold"], r["sell"] + r["strongSell"]
-        total = buy + hold + sell
-        return {"period": r["period"], "buy": buy, "hold": hold, "sell": sell, "total": total,
-                "buy_pct": round(buy / total * 100) if total else None}
 
-    cur = summary(rows[0])
-    old = summary(rows[3]) if len(rows) > 3 else None
-    return {"current": cur, "before": old}
+def analyst_actions(position, key, today, days=5):
+    """Analysten-Aktionen (Hoch-/Herabstufung, Kursziel) zu einer Aktie aus den letzten `days` Tagen."""
+    frm = (today - timedelta(days=days)).isoformat()
+    rows = _get("company-news", key, symbol=position["proxy"], **{"from": frm, "to": today.isoformat()})
+    name = re.compile(r"\b" + re.escape(position["keywords"][0]), re.I)
+    out, seen = [], set()
+    for n in rows:
+        head = n.get("headline", "")
+        if (n.get("source", "").lower() not in ANALYST_SOURCES or not ACTION.search(head)
+                or not (name.search(head) or position["proxy"] in head) or "Analyst Blog" in head):
+            continue
+        if head in seen:
+            continue
+        seen.add(head)
+        d = "up" if UP.search(head) and not DOWN.search(head) else "down" if DOWN.search(head) and not UP.search(head) else "mixed"
+        out.append({"headline": head, "source": n.get("source"), "url": n.get("url"),
+                    "date": n.get("datetime"), "dir": d})
+    return sorted(out, key=lambda x: -(x["date"] or 0))[:5]
 
 
 def has(text, words):

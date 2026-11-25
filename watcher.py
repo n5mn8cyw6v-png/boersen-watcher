@@ -381,19 +381,17 @@ def main():
         guarded(f"13F {name}", check)
     page["investors"] = [inv_state[n] for n in cfg.get("investors", {}) if n in inv_state]
 
-    if force or state.get("analysts_checked") != today.isoformat():
-        def load_analysts():
-            out = []
-            for p in pf["positions"]:
-                if p["type"] == "stock":
-                    a = news.analysts(p["proxy"], fh_key)
-                    if a:
-                        out.append({"position": p["short"], "symbol": p["proxy"], **a})
-            return out
-        an = guarded("Analysten (Finnhub)", load_analysts)
-        if an is not None:
-            page["analysts"] = an
-            state["analysts_checked"] = today.isoformat()
+    # Analysten: nur Meldungen der letzten 5 Tage, bei jedem Lauf neu
+    def load_analysts():
+        out = []
+        for p in pf["positions"]:
+            if p["type"] == "stock":
+                acts = news.analyst_actions(p, fh_key, today)
+                out.append({"position": p["short"], "symbol": p["proxy"], "actions": acts})
+        return out
+    an = guarded("Analysten (Finnhub)", load_analysts)
+    if an is not None:
+        page["analysts"] = an
 
     # 4) Meldungen sammeln
     held = proxies

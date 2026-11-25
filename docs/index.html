@@ -120,7 +120,7 @@
   <h2>Was die Profis tun</h2>
   <div class="note" style="margin:0 0 12px">Hier stehen Meinungen und Entscheidungen <b>anderer</b>: Analysten, Großinvestoren, Big Player.
     Sie liegen oft daneben, verfolgen andere Ziele als du und ihre Depotdaten sind bis zu 45 Tage alt. Keine Empfehlung.</div>
-  <div class="day">Analysten zu deinen Aktien</div>
+  <div class="day">Analysten zu deinen Aktien (letzte 5 Tage)</div>
   <div id="analysts"></div>
   <div class="day">Großinvestoren: Käufe und Verkäufe im letzten Quartal</div>
   <div id="investors"></div>
@@ -218,18 +218,16 @@ function renderItems() {
 const KIND = { new: "neu gekauft", up: "aufgestockt", down: "reduziert", exits: "komplett verkauft", largest: "unter den größten Positionen" };
 
 function renderPros(d) {
-  const an = d.analysts || [];
-  $("analysts").innerHTML = an.length ? an.map(a => {
-    const c = a.current, b = a.before, w = x => (x / c.total * 100).toFixed(1);
-    const trend = b && b.buy_pct != null && c.buy_pct != null
-      ? (c.buy_pct - b.buy_pct >= 5 ? ` · ▲ mehr Kaufen als vor 3 Monaten (${b.buy_pct} %)`
-        : c.buy_pct - b.buy_pct <= -5 ? ` · ▼ weniger Kaufen als vor 3 Monaten (${b.buy_pct} %)` : " · kaum verändert ggü. vor 3 Monaten")
-      : "";
-    return `<div class="card"><div class="t">${esc(a.position)} <span class="sub">${esc(a.symbol)}</span></div>
-      <div class="bar"><span class="b" style="width:${w(c.buy)}%"></span><span class="h" style="width:${w(c.hold)}%"></span><span class="s" style="width:${w(c.sell)}%"></span></div>
-      <div class="sub">${c.buy} Kaufen · ${c.hold} Halten · ${c.sell} Verkaufen (von ${c.total} Analysten)${trend}</div></div>`;
-  }).join("") + `<div class="sub" style="margin-bottom:8px">Analysten sagen viel häufiger „Kaufen“ als „Verkaufen“. Aussagekräftiger ist die Veränderung über die Zeit.</div>`
-    : `<div class="empty">Noch keine Analystendaten.</div>`;
+  const an = (d.analysts || []).filter(a => a.actions);
+  const ARROW = { up: "▲", down: "▼", mixed: "●" }, DIRDE = { up: "positiv", down: "negativ", mixed: "gemischt" };
+  const acts = an.flatMap(a => a.actions.map(x => ({ ...x, position: a.position })));
+  const none = an.filter(a => !a.actions.length).map(a => a.position);
+  $("analysts").innerHTML = (acts.length ? acts.map(x => `<div class="card"><div class="t">${ARROW[x.dir]} ${esc(x.position)} <span class="sub">${DIRDE[x.dir]}</span></div>
+      <div><a href="${esc(x.url || "#")}" target="_blank" rel="noopener">${esc(x.headline)}</a></div>
+      <div class="sub">${esc(x.source || "")} · ${x.date ? new Date(x.date * 1000).toLocaleDateString("de-DE") : ""}</div></div>`).join("")
+    : `<div class="empty">Keine Analysten-Meldungen in den letzten 5 Tagen.</div>`)
+    + (acts.length && none.length ? `<div class="sub">Ohne neue Analysten-Meldung: ${none.map(esc).join(", ")}</div>` : "")
+    + `<div class="sub" style="margin-bottom:8px">Nur Hoch-/Herabstufungen und Kursziele der letzten 5 Tage. Das ist die Meinung der Analysten, keine Empfehlung.</div>`;
 
   const inv = d.investors || [];
   const list = (label, xs, showChg) => xs?.length ? `<p><span class="k">${label}:</span> ${xs.map(x =>
