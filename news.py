@@ -27,6 +27,23 @@ def quotes(symbols, key):
     return out
 
 
+def analysts(symbol, key):
+    """Analysten-Einschätzungen (Anzahl Kaufen/Halten/Verkaufen), aktuell und vor 3 Monaten."""
+    rows = _get("stock/recommendation", key, symbol=symbol)
+    if not rows:
+        return None
+
+    def summary(r):
+        buy, hold, sell = r["strongBuy"] + r["buy"], r["hold"], r["sell"] + r["strongSell"]
+        total = buy + hold + sell
+        return {"period": r["period"], "buy": buy, "hold": hold, "sell": sell, "total": total,
+                "buy_pct": round(buy / total * 100) if total else None}
+
+    cur = summary(rows[0])
+    old = summary(rows[3]) if len(rows) > 3 else None
+    return {"current": cur, "before": old}
+
+
 def has(text, words):
     return [w for w in words if re.search(r"\b" + re.escape(w) + r"\b", text, re.I)]
 

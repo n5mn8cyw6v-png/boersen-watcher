@@ -63,6 +63,15 @@
   th:first-child, td:first-child { text-align: left; }
   td .s { display: block; font-size: 11px; color: var(--muted); }
   .tablewrap { background: var(--card); border: 1px solid var(--line); border-radius: 12px; padding: 4px 10px; overflow-x: auto; }
+  .bar { display: flex; height: 8px; border-radius: 4px; overflow: hidden; margin: 6px 0 4px; background: var(--chip); }
+  .bar span { display: block; height: 100%; }
+  .bar .b { background: var(--up); } .bar .h { background: var(--muted); opacity: .5; } .bar .s { background: var(--down); }
+  .inv p { font-size: 13px; }
+  .inv .k { color: var(--muted); font-weight: 600; }
+  details summary { cursor: pointer; font-weight: 600; list-style: none; }
+  details summary::-webkit-details-marker { display: none; }
+  details summary::after { content: " ▾"; color: var(--muted); font-weight: 400; }
+  details[open] summary::after { content: " ▴"; }
   .risk { background: var(--warn-bg); color: var(--text); border-radius: 12px; padding: 10px 14px; font-size: 14px; }
   .risk li { margin: 4px 0; }
   .risk ul { margin: 0; padding-left: 18px; }
@@ -107,6 +116,16 @@
   <h2>Meldungen</h2>
   <div class="filters" id="filters"></div>
   <div id="items"></div>
+
+  <h2>Was die Profis tun</h2>
+  <div class="note" style="margin:0 0 12px">Hier stehen Meinungen und Entscheidungen <b>anderer</b>: Analysten, Großinvestoren, Big Player.
+    Sie liegen oft daneben, verfolgen andere Ziele als du und ihre Depotdaten sind bis zu 45 Tage alt. Keine Empfehlung.</div>
+  <div class="day">Analysten zu deinen Aktien</div>
+  <div id="analysts"></div>
+  <div class="day">Großinvestoren: Käufe und Verkäufe im letzten Quartal</div>
+  <div id="investors"></div>
+  <div class="day">Aussagen von Big Playern</div>
+  <div id="players"></div>
 
   <h2>Termine (nächste 14 Tage)</h2>
   <div id="agenda"></div>
@@ -196,6 +215,49 @@ function renderItems() {
   }).join("") : `<div class="empty">Noch keine Meldungen in dieser Kategorie.</div>`;
 }
 
+const KIND = { new: "neu gekauft", up: "aufgestockt", down: "reduziert", exits: "komplett verkauft", largest: "unter den größten Positionen" };
+
+function renderPros(d) {
+  const an = d.analysts || [];
+  $("analysts").innerHTML = an.length ? an.map(a => {
+    const c = a.current, b = a.before, w = x => (x / c.total * 100).toFixed(1);
+    const trend = b && b.buy_pct != null && c.buy_pct != null
+      ? (c.buy_pct - b.buy_pct >= 5 ? ` · ▲ mehr Kaufen als vor 3 Monaten (${b.buy_pct} %)`
+        : c.buy_pct - b.buy_pct <= -5 ? ` · ▼ weniger Kaufen als vor 3 Monaten (${b.buy_pct} %)` : " · kaum verändert ggü. vor 3 Monaten")
+      : "";
+    return `<div class="card"><div class="t">${esc(a.position)} <span class="sub">${esc(a.symbol)}</span></div>
+      <div class="bar"><span class="b" style="width:${w(c.buy)}%"></span><span class="h" style="width:${w(c.hold)}%"></span><span class="s" style="width:${w(c.sell)}%"></span></div>
+      <div class="sub">${c.buy} Kaufen · ${c.hold} Halten · ${c.sell} Verkaufen (von ${c.total} Analysten)${trend}</div></div>`;
+  }).join("") + `<div class="sub" style="margin-bottom:8px">Analysten sagen viel häufiger „Kaufen“ als „Verkaufen“. Aussagekräftiger ist die Veränderung über die Zeit.</div>`
+    : `<div class="empty">Noch keine Analystendaten.</div>`;
+
+  const inv = d.investors || [];
+  const list = (label, xs, showChg) => xs?.length ? `<p><span class="k">${label}:</span> ${xs.map(x =>
+    esc(x.name) + (showChg && x.change_pct != null ? ` (${x.change_pct > 0 ? "+" : ""}${x.change_pct} %)` : "")).join(", ")}</p>` : "";
+  $("investors").innerHTML = inv.length ? inv.map(s => {
+    const mine = (s.overlap || []).filter(o => o.kind !== "largest");
+    const held = (s.overlap || []).filter(o => o.kind === "largest");
+    const tags = mine.map(o => `<span class="tag mine">Dein Depot: ${esc(o.position)} ${esc(KIND[o.kind])}${o.change_pct ? ` ${o.change_pct > 0 ? "+" : ""}${o.change_pct} %` : ""}</span>`).join("")
+      + held.filter(h => !mine.some(m => m.position === h.position)).map(o => `<span class="tag mine">Hält auch: ${esc(o.position)}</span>`).join("");
+    return `<div class="card inv"><details>
+      <summary>${esc(s.investor)}</summary>
+      <div class="meta">Stand ${esc(s.period)} · gemeldet ${esc(s.filed)} · ${s.count} Aktien · ca. ${s.total_musd.toLocaleString("de-AT")} Mio. $</div>
+      ${tags ? `<div>${tags}</div>` : ""}
+      ${list("Neu gekauft", s.new)}${list("Aufgestockt", s.up, true)}${list("Reduziert", s.down, true)}${list("Komplett verkauft", s.exits)}
+      <p><span class="k">Größte Positionen:</span> ${s.largest.map(x => `${esc(x.name)} ${x.weight.toFixed(0)} %`).join(", ")}</p>
+    </details></div>`;
+  }).join("") : `<div class="empty">Wird beim nächsten Lauf geladen.</div>`;
+
+  const pl = (d.items || []).filter(i => i.kind === "player").slice(0, 6);
+  $("players").innerHTML = pl.length ? pl.map(i => `<div class="card">
+      <div class="t">${esc(i.title)}</div>
+      <div class="meta">${i.time ? fmtFull.format(new Date(i.time)) : ""} · ${esc(i.source)}</div>
+      <div>${(i.players || []).map(p => `<span class="tag">${esc(p)}</span>`).join("")}${(i.affected || []).map(a => `<span class="tag mine">Dein Depot: ${esc(a)}</span>`).join("")}</div>
+      <p><span class="lbl">Typisch:</span> ${esc(i.typical)}</p>
+      <a href="${esc(i.link)}" target="_blank" rel="noopener">Original öffnen →</a></div>`).join("")
+    : `<div class="empty">Noch keine Aussagen gesammelt. Sie erscheinen, sobald Reuters, CNBC & Co. darüber berichten.</div>`;
+}
+
 function render(d) {
   PAGE = d;
   $("updated").textContent = "Zuletzt aktualisiert: " + (d.updated ? fmtFull.format(new Date(d.updated)) + " Uhr" : "–");
@@ -232,6 +294,8 @@ function render(d) {
       ${e.typical ? `<p><span class="lbl">Typisch:</span> ${esc(e.typical)}</p>` : ""}</div>`;
   }
   $("agenda").innerHTML = html || `<div class="empty">Keine wichtigen Termine in den nächsten 14 Tagen.</div>`;
+
+  renderPros(d);
 
   $("filters").innerHTML = FILTERS.map(([k, l]) => `<button data-k="${k}" aria-pressed="${k === filter}">${l}</button>`).join("");
   renderItems();

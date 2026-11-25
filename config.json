@@ -143,9 +143,12 @@
   "investors": {
     "Berkshire Hathaway (Buffett)": "1067983",
     "Pershing Square (Ackman)": "1336528",
-    "Scion (Burry)": "1649339",
     "Bridgewater (Dalio)": "1350694",
-    "ARK (Cathie Wood)": "1697748"
+    "ARK Invest (Cathie Wood)": "1697748",
+    "Duquesne (Druckenmiller)": "1536411",
+    "Appaloosa (Tepper)": "1656456",
+    "Soros Fund Management": "1029160",
+    "Gates Foundation Trust": "1166559"
   },
   "big_players": [
     "Trump",
@@ -264,5 +267,6 @@
     "rate cut",
     "rate hike"
   ],
-  "page_url": "https://n5mn8cyw6v-png.github.io/boersen-watcher/"
+  "page_url": "https://n5mn8cyw6v-png.github.io/boersen-watcher/",
+  "investors_note": "SEC-Nummern (CIK) der 13F-Meldungen. Daten sind bis zu 45 Tage nach Quartalsende alt."
 }

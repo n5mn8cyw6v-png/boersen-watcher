@@ -22,6 +22,7 @@ from zoneinfo import ZoneInfo
 import requests
 
 import explain
+import investors
 import news
 import portfolio
 import store
@@ -109,7 +110,7 @@ def fetch_company(name, spec, cfg, contact, held):
                      f"{', '.join(labels) if labels else FORMS_DE.get(form, form)}",
             "what": what, "typical": typical, "symbol": sym,
             "affected": [sym] if is_held else [],
-            "urgent": investor or (is_held and (earnings or form == "8-K")),
+            "urgent": is_held and (earnings or form == "8-K"),
             "source": "SEC EDGAR", "link": e.find(f"{ATOM}link").get("href"),
         })
     return out
@@ -354,7 +355,47 @@ def main():
                            "Größerer Rückgang seit dem Höchststand. Für langfristiges Anlegen sind solche Phasen normal; "
                            "prüfen, ob Risiko und Aufteilung noch zum Ziel passen.", None))
 
-    # 3) Meldungen sammeln
+    # 3) Was die Profis tun: Großinvestoren (13F) und Analysten
+    inv_state = state.setdefault("investors", {})
+    for name, cik in cfg.get("investors", {}).items():
+        def check(name=name, cik=cik):
+            latest = investors.latest_filings(cik, contact, n=1)
+            if not latest:
+                return
+            old = inv_state.get(name)
+            if old and old.get("acc") == latest[0]["acc"]:
+                return
+            summary = investors.analyze(name, cik, contact)
+            summary["overlap"] = investors.overlap(summary, pf)
+            inv_state[name] = summary
+            if old:  # beim allerersten Mal nur merken, nicht melden
+                mine = "".join(f"\nDein Depot: {o['position']} – {investors.KIND_DE[o['kind']]}"
+                               + (f" ({o['change_pct']:+d} %)" if o.get("change_pct") else "")
+                               for o in summary["overlap"] if o["kind"] != "largest")
+                urgent.append((f"🧠 {name}: neue Depot-Meldung",
+                               f"Stand {summary['period']} (gemeldet {summary['filed']}).\n"
+                               f"{investors.short_text(summary)}{mine}\n\n"
+                               f"Das sind Entscheidungen von {name.split('(')[-1].rstrip(')')}, keine Empfehlung. "
+                               "Die Daten sind bis zu 45 Tage alt.",
+                               f"https://www.sec.gov/cgi-bin/browse-edgar?action=getcompany&CIK={cik}&type=13F-HR"))
+        guarded(f"13F {name}", check)
+    page["investors"] = [inv_state[n] for n in cfg.get("investors", {}) if n in inv_state]
+
+    if force or state.get("analysts_checked") != today.isoformat():
+        def load_analysts():
+            out = []
+            for p in pf["positions"]:
+                if p["type"] == "stock":
+                    a = news.analysts(p["proxy"], fh_key)
+                    if a:
+                        out.append({"position": p["short"], "symbol": p["proxy"], **a})
+            return out
+        an = guarded("Analysten (Finnhub)", load_analysts)
+        if an is not None:
+            page["analysts"] = an
+            state["analysts_checked"] = today.isoformat()
+
+    # 4) Meldungen sammeln
     held = proxies
     found, ok = [], set()
 
@@ -365,9 +406,6 @@ def main():
             ok.add(src)
 
     for name, spec in cfg.get("sec_companies", {}).items():
-        collect(f"sec:{name}", f"SEC {name}", lambda n=name, s=spec: fetch_company(n, s, cfg, contact, held))
-    for name, cik in cfg.get("investors", {}).items():
-        spec = {"cik": cik, "forms": ["13F-HR"]}
         collect(f"sec:{name}", f"SEC {name}", lambda n=name, s=spec: fetch_company(n, s, cfg, contact, held))
     if cfg.get("ipos"):
         collect("ipo", "SEC IPOs", lambda: fetch_ipos(contact))
@@ -403,7 +441,7 @@ def main():
             state["pending"].append({"t": i["title"], "a": i["affected"]})
     page["items"] = page["items"][:MAX_HISTORY]
 
-    # 4) Eilmeldungen senden
+    # 5) Eilmeldungen senden
     hour_key = f"{today} {now.hour}"
     sent_this_hour = state.get("urgent_sent", {}).get(hour_key, 0)
     limit = max(0, cfg.get("max_urgent_per_hour", 4) - sent_this_hour)
@@ -414,7 +452,7 @@ def main():
         state["pending"].append({"t": title, "a": []})
     state["pending"] = state["pending"][-60:]
 
-    # 5) Stündliches Markt-Update
+    # 6) Stündliches Markt-Update
     if (force or session) and state.get("last_hourly") != hour_key and ev:
         q = quotes
         movers = sorted([r for r in ev["positions"] if r["day_pct"] is not None], key=lambda r: r["day_pct"])
