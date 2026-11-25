@@ -63,7 +63,35 @@ AGENDA = {
 }
 
 
+INVESTOR_13F = ("Quartalsweise Pflichtmeldung: alle US-Aktien, die dieser Großinvestor hält. Zeigt Käufe und Verkäufe.",
+                "Die Daten sind bis zu 45 Tage alt. Neue Käufe bekannter Investoren lassen Aktien oft kurz steigen.")
+
+NEWS_THEMES = [
+    (("tariff", "tariffs", "trade war", "export"), "Zölle oder Handelsbeschränkungen: verteuern Importe, betroffene Firmen und Länder fallen oft, der Gesamtmarkt reagiert nervös."),
+    (("Fed", "Powell", "rate cut", "rate hike", "interest rate", "Treasury yields"), "Zinsen: Aussicht auf sinkende Zinsen hilft Aktien (vor allem Tech), steigende Zinsen belasten."),
+    (("inflation", "CPI", "PCE"), "Inflation: höher als erwartet → Zinssenkungen unwahrscheinlicher → Aktien fallen oft."),
+    (("downgrade", "cut to"), "Analysten-Herabstufung: Kurs fällt oft am selben Tag, Wirkung hält aber selten lange."),
+    (("upgrade", "raised to"), "Analysten-Hochstufung: Kurs steigt oft am selben Tag."),
+    (("probe", "investigation", "lawsuit", "sued", "charges"), "Ermittlung oder Klage: Unsicherheit drückt den Kurs, bis klar ist, wie teuer es wird."),
+    (("acquire", "acquisition", "merger", "buyout", "stake"), "Übernahme oder Beteiligung: Übernommene Firma steigt meist, Käufer fällt oft leicht."),
+    (("oil", "OPEC", "crude"), "Ölpreis: steigt er, profitieren Energiewerte (Energie-ETF, Vista), viele andere Firmen leiden unter höheren Kosten."),
+    (("bitcoin", "crypto", "stablecoin"), "Krypto: Blockchain-Aktien schwanken meist noch stärker als Bitcoin selbst."),
+    (("rare earth", "rare-earth"), "Seltene Erden: Exportstopps Chinas machen US-Produzenten wie MP Materials attraktiver."),
+    (("China", "Beijing"), "China: betrifft Schwellenländer-ETF, Zijin und Chip-Firmen mit China-Geschäft."),
+    (("guidance", "forecast", "outlook"), "Ausblick: Für den Kurs oft wichtiger als die aktuellen Zahlen."),
+]
+
+
+def news(text):
+    for words, typical in NEWS_THEMES:
+        if any(w.lower() in text.lower() for w in words):
+            return typical
+    return "Wirkung hängt vom Inhalt ab. Erst Originalartikel lesen, dann bewerten."
+
+
 def sec(form, item_nums):
+    if form == "13F-HR":
+        return INVESTOR_13F
     for n in ("2.02", "2.01", "1.01", "5.02"):
         if n in item_nums:
             return SEC[n]

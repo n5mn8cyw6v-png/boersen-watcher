@@ -1,9 +1,12 @@
-"""Börsen-Watcher: schickt Push-Nachrichten per ntfy bei wichtigen Meldungen
-und schreibt eine Übersichtsseite (docs/).
+"""Börsen-Watcher mit Demo-Portfolio.
 
-Quellen: SEC EDGAR (große US-Techwerte, IPOs), Fed-Pressemitteilungen,
-Wirtschaftstermine (BLS, BEA, FOMC), Kurse (Finnhub).
-Kein Handelssignal, keine Anlageberatung.
+- Eilmeldungen sofort: starke Bewegungen deiner Positionen, wichtige News zu deinen
+  Werten, Aussagen von Big Playern (Trump, Musk, Buffett …) mit Marktbezug,
+  Quartalszahlen deiner Firmen, Depot-Meldungen großer Investoren, Fed-Zinsentscheid.
+- Stündliches Markt-Update während der US-Börsenzeit.
+- Verschlüsselte Übersichtsseite (docs/), Passwort nur als GitHub-Secret.
+
+Nur Information zum Nachprüfen. Kein Handelssignal, keine Anlageberatung.
 """
 
 import json
@@ -19,67 +22,57 @@ from zoneinfo import ZoneInfo
 import requests
 
 import explain
+import news
+import portfolio
+import store
 
 BASE = Path(__file__).parent
 CONFIG_FILE = BASE / "config.json"
-STATE_FILE = BASE / "seen.json"
-DATA_FILE = BASE / "docs" / "data.json"
+DATA_FILE = BASE / "docs" / "data.enc"
+LOCAL_PORTFOLIO = BASE / "portfolio.local.json"
 NY = ZoneInfo("America/New_York")
 WIEN = ZoneInfo("Europe/Vienna")
 NTFY_URL = "https://ntfy.sh"
 FED_FEED = "https://www.federalreserve.gov/feeds/press_all.xml"
-SEC_FEED = (
-    "https://www.sec.gov/cgi-bin/browse-edgar?action=getcompany&CIK={cik}"
-    "&type=&dateb=&owner=include&count=40&output=atom"
-)
+SEC_FEED = ("https://www.sec.gov/cgi-bin/browse-edgar?action=getcompany&CIK={cik}"
+            "&type=&dateb=&owner=include&count=40&output=atom")
 IPO_FEED = "https://www.sec.gov/cgi-bin/browse-edgar?action=getcurrent&type=424B4&count=40&output=atom"
 BLS_ICS = "https://www.bls.gov/schedule/news_release/bls.ics"
 BEA_ICS = "https://www.bea.gov/news/schedule/ics/online-calendar-subscription.ics"
-FINNHUB_QUOTE = "https://finnhub.io/api/v1/quote"
 DISCLAIMER = "Zum Nachprüfen, kein Handelssignal."
-MAX_SEEN = 3000
-MAX_HISTORY = 150
+MAX_SEEN = 5000
+MAX_HISTORY = 200
 ATOM = "{http://www.w3.org/2005/Atom}"
-ITEMS_DE = {
-    "2.02": "Quartalszahlen",
-    "2.01": "Übernahme/Verkauf abgeschlossen",
-    "1.01": "Wichtiger Vertrag",
-    "5.02": "Vorstandswechsel",
-    "7.01": "Mitteilung an Investoren",
-    "8.01": "Sonstige Meldung",
-}
-FORMS_DE = {"4": "Insider-Transaktion", "10-Q": "Quartalsbericht", "10-K": "Jahresbericht"}
+ITEMS_DE = {"2.02": "Quartalszahlen", "2.01": "Übernahme/Verkauf abgeschlossen", "1.01": "Wichtiger Vertrag",
+            "5.02": "Vorstandswechsel", "7.01": "Mitteilung an Investoren", "8.01": "Sonstige Meldung"}
+FORMS_DE = {"4": "Insider-Transaktion", "10-Q": "Quartalsbericht", "10-K": "Jahresbericht",
+            "13F-HR": "Depot-Meldung (13F)"}
 
 
-def market_open(now):
-    """8-18 Uhr New York: vorbörslich bis kurz nach Handelsschluss,
-    damit Quartalszahlen nach Börsenschluss (meist ca. 16:05) noch erfasst werden."""
-    if now.weekday() >= 5:
-        return False
-    return 8 <= now.hour < 18
+def de_num(x, digits=2):
+    return f"{x:,.{digits}f}".replace(",", "X").replace(".", ",").replace("X", ".")
 
 
-def load_json(path, default):
-    try:
-        return json.loads(path.read_text(encoding="utf-8"))
-    except FileNotFoundError:
-        return default
-
-
-def notify(topic, title, message, link=None, tags=None):
-    payload = {"topic": topic, "title": title, "message": message}
-    if link:
-        payload["click"] = link
-    if tags:
-        payload["tags"] = tags
-    requests.post(NTFY_URL, json=payload, timeout=20).raise_for_status()
+def pct(x):
+    return "–" if x is None else f"{'+' if x > 0 else ''}{de_num(x)} %"
 
 
 def matches(text, keywords):
     return any(re.search(r"\b" + re.escape(k) + r"\b", text, re.IGNORECASE) for k in keywords)
 
 
-# ---------- SEC ----------
+def notify(topic, title, message, link=None, tags=None, priority=None):
+    payload = {"topic": topic, "title": title, "message": message}
+    if link:
+        payload["click"] = link
+    if tags:
+        payload["tags"] = tags
+    if priority:
+        payload["priority"] = priority
+    requests.post(NTFY_URL, json=payload, timeout=20).raise_for_status()
+
+
+# ---------- SEC & Fed ----------
 
 def sec_get(url, contact):
     headers = {"User-Agent": f"BoersenWatcher {contact}", "Accept-Encoding": "gzip, deflate"}
@@ -89,10 +82,10 @@ def sec_get(url, contact):
     return ET.fromstring(r.content)
 
 
-def fetch_company(name, spec, cfg, contact):
+def fetch_company(name, spec, cfg, contact, held):
     root = sec_get(SEC_FEED.format(cik=spec["cik"]), contact)
     only_items = set(cfg.get("sec_8k_items_only", [])) if name != "Nvidia" else None
-    items = []
+    out = []
     for e in root.findall(f"{ATOM}entry"):
         cat = e.find(f"{ATOM}category")
         form = cat.get("term") if cat is not None else ""
@@ -104,48 +97,43 @@ def fetch_company(name, spec, cfg, contact):
         if form == "8-K" and only_items is not None and not only_items & set(nums):
             continue
         labels = [ITEMS_DE[n] for n in nums if n in ITEMS_DE]
-        what_label = ", ".join(labels) if labels else FORMS_DE.get(form, form)
         what, typical = explain.sec(form, nums)
-        items.append({
-            "src": f"sec:{name}",
-            "id": "sec:" + (e.findtext(f"{ATOM}id") or ""),
-            "kind": "earnings" if "2.02" in nums else "company",
-            "title": f"{'📊 ' if '2.02' in nums else ''}{name}: {what_label}",
-            "what": what,
-            "typical": typical,
-            "symbol": spec.get("ticker"),
-            "source": "SEC EDGAR",
-            "link": e.find(f"{ATOM}link").get("href"),
+        sym = spec.get("ticker")
+        is_held = sym in held
+        earnings = "2.02" in nums
+        investor = form == "13F-HR"
+        out.append({
+            "src": f"sec:{name}", "id": "sec:" + (e.findtext(f"{ATOM}id") or ""),
+            "kind": "investor" if investor else ("earnings" if earnings else "company"),
+            "title": f"{'📊 ' if earnings else '🧠 ' if investor else ''}{name}: "
+                     f"{', '.join(labels) if labels else FORMS_DE.get(form, form)}",
+            "what": what, "typical": typical, "symbol": sym,
+            "affected": [sym] if is_held else [],
+            "urgent": investor or (is_held and (earnings or form == "8-K")),
+            "source": "SEC EDGAR", "link": e.find(f"{ATOM}link").get("href"),
         })
-    return items
+    return out
 
 
 def fetch_ipos(contact):
     root = sec_get(IPO_FEED, contact)
-    items = []
+    out = []
     for e in root.findall(f"{ATOM}entry"):
         title = (e.findtext(f"{ATOM}title") or "").strip()
         m = re.match(r"424B4 - (.+?) \(\d+\)", title)
-        items.append({
-            "src": "ipo",
-            "id": "ipo:" + (e.findtext(f"{ATOM}id") or title),
-            "kind": "ipo",
+        out.append({
+            "src": "ipo", "id": "ipo:" + (e.findtext(f"{ATOM}id") or title), "kind": "ipo",
             "title": f"🚀 Börsengang/Platzierung: {m.group(1) if m else title}",
-            "what": explain.IPO[0],
-            "typical": explain.IPO[1],
-            "symbol": None,
-            "source": "SEC EDGAR",
-            "link": e.find(f"{ATOM}link").get("href"),
+            "what": explain.IPO[0], "typical": explain.IPO[1], "symbol": None, "affected": [],
+            "urgent": False, "source": "SEC EDGAR", "link": e.find(f"{ATOM}link").get("href"),
         })
-    return items
+    return out
 
-
-# ---------- Fed ----------
 
 def fetch_fed(cfg):
     r = requests.get(FED_FEED, headers={"User-Agent": "BoersenWatcher"}, timeout=30)
     r.raise_for_status()
-    items = []
+    out = []
     for it in ET.fromstring(r.content).iter("item"):
         title = (it.findtext("title") or "").strip()
         desc = re.sub(r"<[^>]+>", "", it.findtext("description") or "").strip()
@@ -153,25 +141,57 @@ def fetch_fed(cfg):
         if not matches(f"{title} {desc}", cfg["keywords"]):
             continue
         what, typical = explain.fed(title)
-        items.append({
-            "src": "fed",
-            "id": "fed:" + (it.findtext("guid") or link),
-            "kind": "fed",
-            "title": "🏦 Fed: " + title,
-            "what": what,
-            "typical": typical,
-            "symbol": cfg.get("market_symbol", "SPY"),
-            "source": "Federal Reserve",
-            "link": link,
+        out.append({
+            "src": "fed", "id": "fed:" + (it.findtext("guid") or link), "kind": "fed",
+            "title": "🏦 Fed: " + title, "what": what, "typical": typical,
+            "symbol": "SPY", "affected": [], "urgent": "FOMC statement" in title,
+            "source": "Federal Reserve", "link": link,
         })
-    return items
+    return out
 
 
-# ---------- Wirtschaftstermine ----------
+def fetch_news(pf, cfg, key, today):
+    out = []
+
+    def add(n, src, held_symbol=None):
+        c = news.classify(n, pf, cfg, held_symbol)
+        if not c["relevant"]:
+            return
+        head = re.sub(r"\s+-\s+(Reuters|CNBC|Bloomberg)$", "", n.get("headline", "").strip())
+        summary = (n.get("summary") or "").strip()
+        if summary.lower().startswith(head.lower()[:40]):
+            summary = ""  # Zusammenfassung wiederholt nur die Überschrift
+        text = f"{head} {summary}"
+        prefix = "🗣️ " if c["players"] else "📰 "
+        out.append({
+            "src": src, "id": f"fh:{n['id']}", "kind": "player" if c["players"] else "news",
+            "title": prefix + head,
+            "what": summary[:300],
+            "typical": explain.news(text), "symbol": (c["affected"] or [None])[0] or ("SPY" if c["macro"] else None),
+            "affected": c["affected"], "players": c["players"], "urgent": c["urgent"],
+            "source": n.get("source", ""), "link": n.get("url", ""),
+        })
+
+    for n in news.general(key):
+        add(n, "news:general")
+    for p in pf["positions"]:
+        if p.get("news"):
+            for n in news.company(p["proxy"], key, today):
+                add(n, f"news:{p['proxy']}", p["proxy"])
+    # Doppelte Artikel (gleiche ID aus mehreren Abfragen) entfernen
+    uniq = {}
+    for i in out:
+        if i["id"] in uniq:
+            uniq[i["id"]]["affected"] = sorted(set(uniq[i["id"]]["affected"]) | set(i["affected"]))
+        else:
+            uniq[i["id"]] = i
+    return list(uniq.values())
+
+
+# ---------- Termine ----------
 
 def ics_events(text):
-    """Sehr einfacher iCal-Leser: liefert (Startzeit NY, Titel)."""
-    text = re.sub(r"\r?\n[ \t]", "", text)  # gefaltete Zeilen zusammenfügen
+    text = re.sub(r"\r?\n[ \t]", "", text)
     for block in text.split("BEGIN:VEVENT")[1:]:
         start = re.search(r"^DTSTART([^:\n]*):(\d{8}T\d{6}Z?)", block, re.M)
         summary = re.search(r"^SUMMARY[^:\n]*:(.*)$", block, re.M)
@@ -184,10 +204,9 @@ def ics_events(text):
 
 
 def fetch_agenda(cfg, contact, first, last):
-    """Wichtige Termine zwischen first und last (jeweils inklusive)."""
     headers = {"User-Agent": f"BoersenWatcher {contact}"}
     events = []
-    for name, url in (("BLS", BLS_ICS), ("BEA", BEA_ICS)):
+    for url in (BLS_ICS, BEA_ICS):
         r = requests.get(url, headers=headers, timeout=30)
         r.raise_for_status()
         for dt, title in ics_events(r.text):
@@ -201,72 +220,65 @@ def fetch_agenda(cfg, contact, first, last):
     for dt, title in sorted(events):
         label, what, typical = explain.agenda(title)
         out.append({"ny": dt.isoformat(), "local": dt.astimezone(WIEN).isoformat(),
-                    "label": label, "original": title, "what": what, "typical": typical})
+                    "label": label, "what": what, "typical": typical})
     return out
-
-
-# ---------- Kurse ----------
-
-def fetch_prices(cfg, key):
-    """Aktueller Kurs und Tagesveränderung je Symbol (Finnhub, kostenlos)."""
-    prices = {}
-    for sym, name in cfg.get("watchlist", {}).items():
-        r = requests.get(FINNHUB_QUOTE, params={"symbol": sym}, headers={"X-Finnhub-Token": key}, timeout=20)
-        r.raise_for_status()
-        q = r.json()
-        if q.get("c"):
-            prices[sym] = {"name": name, "price": q["c"], "change_pct": q.get("dp"), "prev_close": q.get("pc")}
-    return prices
 
 
 # ---------- Ablauf ----------
 
+def load_portfolio():
+    raw = os.environ.get("PORTFOLIO_JSON")
+    if raw:
+        return json.loads(raw)
+    if LOCAL_PORTFOLIO.exists():
+        return json.loads(LOCAL_PORTFOLIO.read_text(encoding="utf-8"))
+    return None
+
+
 def main():
-    force = os.environ.get("FORCE_RUN") == "true"
-    dry = os.environ.get("DRY_RUN") == "true"
-    topic = os.environ.get("NTFY_TOPIC", "")
-    contact = os.environ.get("SEC_CONTACT_EMAIL", "")
-    finnhub = os.environ.get("FINNHUB_KEY", "")
-    cfg = load_json(CONFIG_FILE, {})
+    env = os.environ.get
+    force, dry = env("FORCE_RUN") == "true", env("DRY_RUN") == "true"
+    topic, contact, fh_key, password = env("NTFY_TOPIC", ""), env("SEC_CONTACT_EMAIL", ""), env("FINNHUB_KEY", ""), env("PAGE_PASSWORD", "")
+    cfg = json.loads(CONFIG_FILE.read_text(encoding="utf-8"))
+    pf = load_portfolio()
     now = datetime.now(NY)
+    today = now.date()
 
     if cfg.get("paused"):
         print("Pausiert (config.json: paused = true).")
         return
-
-    state = load_json(STATE_FILE, {})
-    for k, v in (("ids", []), ("failures", {}), ("alerted", {}), ("init_sources", [])):
-        state.setdefault(k, v)
-    state["failures"].pop("SEC EDGAR", None)  # alter Name aus Version 1
-    state["alerted"].pop("SEC EDGAR", None)
-    if state["ids"] and not state["init_sources"]:
-        state["init_sources"] = ["sec:Nvidia", "fed"]  # Altbestand aus Version 1
-
-    agenda_due = (cfg.get("agenda") and now.weekday() < 5 and now.hour >= 8
-                  and state.get("agenda_sent") != now.date().isoformat())
-    is_open = market_open(now)
-    if not (force or is_open or agenda_due):
-        print("Börse geschlossen, nichts zu tun.")
+    weekday = now.weekday() < 5
+    active = weekday and 8 <= now.hour < 18
+    session = weekday and (now.hour, now.minute) >= (9, 30) and now.hour < 17
+    if not (force or active):
+        print("Außerhalb der Zeiten, nichts zu tun.")
         return
-    if not dry and not topic:
-        sys.exit("NTFY_TOPIC fehlt.")
-    if not contact:
-        sys.exit("SEC_CONTACT_EMAIL fehlt.")
+    missing = [n for n, v in (("NTFY_TOPIC", topic or dry), ("SEC_CONTACT_EMAIL", contact),
+                              ("FINNHUB_KEY", fh_key), ("PAGE_PASSWORD", password or dry), ("PORTFOLIO_JSON", pf)) if not v]
+    if missing:
+        sys.exit("Fehlt: " + ", ".join(missing))
 
-    data = load_json(DATA_FILE, {"items": []})
+    db = {"state": {}, "page": {}}
+    if DATA_FILE.exists() and password:
+        db = store.decrypt(json.loads(DATA_FILE.read_text()), password)
+    state, page = db["state"], db["page"]
+    for k, v in (("ids", []), ("failures", {}), ("alerted", {}), ("init_sources", []), ("alert_keys", []),
+                 ("pending", []), ("history", [])):
+        state.setdefault(k, v)
+    page.setdefault("items", [])
 
-    def send(title, message, link=None, tags=None):
+    def send(title, message, link=None, tags=None, priority=None):
         if dry:
-            print(f"[DRY] {title}\n      {message}\n      {link or ''}")
+            print(f"[PUSH] {title}\n       " + message.replace("\n", "\n       ") + (f"\n       {link}" if link else ""))
         else:
-            notify(topic, title, message, link, tags)
+            notify(topic, title, message, link, tags, priority)
 
     def guarded(name, fn):
         try:
-            result = fn()
+            res = fn()
             state["failures"][name] = 0
             state["alerted"][name] = False
-            return result
+            return res
         except Exception as exc:
             n = state["failures"].get(name, 0) + 1
             state["failures"][name] = n
@@ -276,78 +288,166 @@ def main():
                 state["alerted"][name] = True
             return None
 
-    # Termine: Vorschau 14 Tage für die Seite, Tagesübersicht als Push
-    agenda = guarded("Wirtschaftstermine",
-                     lambda: fetch_agenda(cfg, contact, now.date(), now.date() + timedelta(days=14)))
+    def once(key):
+        """True, wenn dieser Alarm noch nicht gesendet wurde (und merkt ihn sich)."""
+        if key in state["alert_keys"]:
+            return False
+        state["alert_keys"] = (state["alert_keys"] + [key])[-500:]
+        return True
+
+    urgent = []  # (title, message, link)
+
+    # 1) Termine
+    agenda = guarded("Wirtschaftstermine", lambda: fetch_agenda(cfg, contact, today, today + timedelta(days=14)))
     if agenda is not None:
-        data["agenda"] = agenda
-        if agenda_due:
-            today = [e for e in agenda if e["ny"][:10] == now.date().isoformat()]
-            if today:
-                lines = []
-                for e in today:
-                    t_ny, t_local = e["ny"][11:16], e["local"][11:16]
-                    lines.append(f"{t_ny} NY / {t_local} bei dir: {e['label']}\n→ {e['typical']}")
-                send("📅 Termine heute", "\n\n".join(lines))
-            state["agenda_sent"] = now.date().isoformat()
+        page["agenda"] = agenda
+        if cfg.get("agenda") and state.get("agenda_sent") != today.isoformat():
+            todays = [e for e in agenda if e["ny"][:10] == today.isoformat()]
+            if todays:
+                send("📅 Termine heute", "\n\n".join(
+                    f"{e['local'][11:16]} Uhr bei dir: {e['label']}\n→ {e['typical']}" for e in todays))
+            state["agenda_sent"] = today.isoformat()
 
-    prices = {}
-    if finnhub and (force or is_open):
-        prices = guarded("Kurse (Finnhub)", lambda: fetch_prices(cfg, finnhub)) or {}
-        if prices:
-            data["prices"] = prices
-            data["prices_updated"] = now.isoformat()
+    # 2) Kurse & Demo-Portfolio
+    proxies = {p["proxy"] for p in pf["positions"]}
+    quotes = guarded("Kurse (Finnhub)", lambda: news.quotes(proxies | set(cfg["watchlist"]), fh_key)) or {}
+    fx = guarded("EZB-Wechselkurs", portfolio.eurusd)
+    ev = None
+    if quotes and fx:
+        base = state.setdefault("base", {"fx": fx, "proxy": {}, "date": today.isoformat()})
+        for s in proxies:
+            if s in quotes and s not in base["proxy"]:
+                base["proxy"][s] = quotes[s]["c"]
+        ev = portfolio.evaluate(pf, quotes, fx, base)
+        page["portfolio"] = ev
+        page["risk"] = portfolio.risk_check(ev)
+        page["prices"] = {s: {"name": n, "price": quotes[s]["c"], "change_pct": quotes[s].get("dp")}
+                          for s, n in cfg["watchlist"].items() if s in quotes}
+        hist = [h for h in state["history"] if h["d"] != today.isoformat()] + [{"d": today.isoformat(), "v": ev["total"]}]
+        state["history"] = hist[-800:]
+        page["history"] = state["history"]
+        peak = max(h["v"] for h in hist)
 
-    if force or is_open:
-        found, ok = [], set()
+        def fresh(sym):
+            t = quotes.get(sym, {}).get("t")
+            return t and datetime.fromtimestamp(t, NY).date() == today
 
-        def collect(src, label, fn):
-            res = guarded(label, fn)
-            if res is not None:
-                found.extend(res)
-                ok.add(src)
+        if session:
+            th = cfg["move_alert_pct"]
+            for r in ev["positions"]:
+                d = r["day_pct"]
+                if d is None or not fresh(r["proxy"]) or abs(d) < th.get(r["type"], 5):
+                    continue
+                if once(f"move:{today}:{r['proxy']}:{'up' if d > 0 else 'down'}"):
+                    urgent.append((f"{'🔻' if d < 0 else '🔺'} {r['short']} {pct(d)} heute",
+                                   f"Deine Position {r['name']} bewegt sich stark ({pct(d)}, Gewicht {de_num(r['weight'], 1)} %).\n"
+                                   "Prüfen: Gibt es eine Nachricht dazu? Passt die Position noch zu deinem Ziel "
+                                   "(langfristig, mittleres Risiko)? Kurzfristige Schwankungen sind bei Einzelaktien normal.",
+                                   None))
+            if fresh("SPY") and ev["day_pct"] <= -cfg["portfolio_day_alert_pct"] and once(f"pfday:{today}"):
+                urgent.append((f"🔻 Demo-Depot {pct(ev['day_pct'])} heute",
+                               f"Das Depot hat heute {de_num(ev['day_abs'])} € verloren. "
+                               "Meist zieht der Gesamtmarkt mit – Termine und Nachrichten prüfen.", None))
+        dd = (peak - ev["total"]) / peak * 100 if peak else 0
+        if dd >= cfg["drawdown_alert_pct"] and once(f"dd:{today.isocalendar()[0]}-{today.isocalendar()[1]}"):
+            urgent.append((f"📉 Depot {de_num(dd, 1)} % unter Höchststand",
+                           "Größerer Rückgang seit dem Höchststand. Für langfristiges Anlegen sind solche Phasen normal; "
+                           "prüfen, ob Risiko und Aufteilung noch zum Ziel passen.", None))
 
-        for name, spec in cfg.get("sec_companies", {}).items():
-            collect(f"sec:{name}", f"SEC {name}", lambda n=name, s=spec: fetch_company(n, s, cfg, contact))
-        if cfg.get("ipos"):
-            collect("ipo", "SEC IPOs", lambda: fetch_ipos(contact))
-        collect("fed", "Federal Reserve", lambda: fetch_fed(cfg))
+    # 3) Meldungen sammeln
+    held = proxies
+    found, ok = [], set()
 
-        seen = set(state["ids"])
-        new = [i for i in found if i["id"] not in seen]
-        # Neue Quellen: Altbestand nur merken, nicht senden.
-        fresh = ok - set(state["init_sources"])
-        to_send = [i for i in new if i["src"] not in fresh]
-        if fresh:
-            print(f"Neue Quellen eingerichtet: {', '.join(sorted(fresh))}")
-            state["init_sources"] += sorted(fresh)
+    def collect(src, label, fn):
+        res = guarded(label, fn)
+        if res is not None:
+            found.extend(res)
+            ok.add(src)
 
-        limit = cfg.get("max_per_run", 5)
-        for item in to_send:
-            sym = item.get("symbol")
-            item["time"] = now.isoformat()
-            item["price_at"] = prices.get(sym, {}).get("price") if sym else None
-            data["items"].insert(0, {k: v for k, v in item.items() if k != "src"})
-        for item in to_send[:limit]:
-            send(item["title"], f"{DISCLAIMER}\n\nWas ist das? {item['what']}\n\nTypisch: {item['typical']}",
-                 item["link"])
-        if len(to_send) > limit:
-            print(f"{len(to_send) - limit} weitere Treffer nicht gesendet (Limit), stehen aber auf der Seite.")
-        if force and not to_send:
-            send("🧪 Test", "Watcher läuft. Gerade keine neuen Meldungen.")
-        print(f"{len(to_send)} neue Treffer.")
-        state["ids"] = (state["ids"] + [i["id"] for i in new])[-MAX_SEEN:]
+    for name, spec in cfg.get("sec_companies", {}).items():
+        collect(f"sec:{name}", f"SEC {name}", lambda n=name, s=spec: fetch_company(n, s, cfg, contact, held))
+    for name, cik in cfg.get("investors", {}).items():
+        spec = {"cik": cik, "forms": ["13F-HR"]}
+        collect(f"sec:{name}", f"SEC {name}", lambda n=name, s=spec: fetch_company(n, s, cfg, contact, held))
+    if cfg.get("ipos"):
+        collect("ipo", "SEC IPOs", lambda: fetch_ipos(contact))
+    collect("fed", "Federal Reserve", lambda: fetch_fed(cfg))
+    news_items = guarded("Nachrichten (Finnhub)", lambda: fetch_news(pf, cfg, fh_key, today))
+    if news_items is not None:
+        found.extend(news_items)
+        ok |= {"news:general"} | {f"news:{p['proxy']}" for p in pf["positions"] if p.get("news")}
 
-    data["items"] = data["items"][:MAX_HISTORY]
-    data["updated"] = now.isoformat()
-    data["sources"] = {k: ("ok" if v == 0 else f"{v}x Fehler") for k, v in state["failures"].items()}
+    seen = set(state["ids"])
+    new = [i for i in found if i["id"] not in seen]
+    fresh_src = ok - set(state["init_sources"])
+    if fresh_src:
+        print(f"Neue Quellen eingerichtet ({len(fresh_src)}), Altbestand nicht gesendet.")
+        state["init_sources"] += sorted(fresh_src)
+    to_report = [i for i in new if i["src"] not in fresh_src]
+    state["ids"] = (state["ids"] + [i["id"] for i in new])[-MAX_SEEN:]
+
+    prices = {s: q["c"] for s, q in quotes.items()}
+    if prices:
+        page["quotes"] = prices
+    for i in to_report:
+        i["time"] = now.isoformat()
+        i["price_at"] = prices.get(i.get("symbol"))
+        page["items"].insert(0, {k: v for k, v in i.items() if k != "src"})
+        if i["urgent"]:
+            aff = f"Betrifft dein Depot: {', '.join(i['affected'])}\n\n" if i["affected"] else ""
+            who = f"Big Player: {', '.join(i.get('players', []))}\n" if i.get("players") else ""
+            urgent.append(("🚨 " + i["title"],
+                           f"{who}{aff}" + (f"{i['what'][:220]}\n\n" if i["what"] else "")
+                           + f"Typisch: {i['typical']}\nQuelle: {i['source']}", i["link"]))
+        else:
+            state["pending"].append({"t": i["title"], "a": i["affected"]})
+    page["items"] = page["items"][:MAX_HISTORY]
+
+    # 4) Eilmeldungen senden
+    hour_key = f"{today} {now.hour}"
+    sent_this_hour = state.get("urgent_sent", {}).get(hour_key, 0)
+    limit = max(0, cfg.get("max_urgent_per_hour", 4) - sent_this_hour)
+    state["urgent_sent"] = {hour_key: sent_this_hour + min(limit, len(urgent))}
+    for title, msg, link in urgent[:limit]:
+        send(title, f"{DISCLAIMER}\n\n{msg}", link, tags=["rotating_light"], priority=4)
+    for title, _, _ in urgent[limit:]:
+        state["pending"].append({"t": title, "a": []})
+    state["pending"] = state["pending"][-60:]
+
+    # 5) Stündliches Markt-Update
+    if (force or session) and state.get("last_hourly") != hour_key and ev:
+        q = quotes
+        movers = sorted([r for r in ev["positions"] if r["day_pct"] is not None], key=lambda r: r["day_pct"])
+        lines = [
+            f"Demo-Depot: {de_num(ev['total'])} € ({pct(ev['day_pct'])} heute | {pct(ev['pl_pct'])} gesamt)",
+            f"Markt: S&P 500 {pct(q.get('SPY', {}).get('dp'))} · Nasdaq {pct(q.get('QQQ', {}).get('dp'))}",
+        ]
+        if movers:
+            lines.append(f"Stärkste: {movers[-1]['short']} {pct(movers[-1]['day_pct'])} · "
+                         f"Schwächste: {movers[0]['short']} {pct(movers[0]['day_pct'])}")
+        pend = sorted(state["pending"], key=lambda p: -len(p["a"]))
+        if pend:
+            lines.append("\nNeu seit dem letzten Update:")
+            lines += [f"• {p['t'][:110]}" + (f" ({', '.join(p['a'])})" if p["a"] else "") for p in pend[:3]]
+            if len(pend) > 3:
+                lines.append(f"+ {len(pend) - 3} weitere auf der Seite")
+        else:
+            lines.append("\nKeine neuen Meldungen seit dem letzten Update.")
+        send(f"📈 Markt-Update {now.astimezone(WIEN):%H:%M}", "\n".join(lines), cfg.get("page_url"))
+        state["pending"] = []
+        state["last_hourly"] = hour_key
+
+    page["updated"] = now.isoformat()
+    page["sources"] = {k: ("ok" if v == 0 else f"{v}x Fehler") for k, v in state["failures"].items()}
+    print(f"{len(to_report)} neue Meldungen, {len(urgent)} Eilmeldungen.")
 
     if dry:
-        print(json.dumps({k: data[k] for k in ("agenda", "sources") if k in data}, ensure_ascii=False)[:1500])
+        out = Path(env("DRY_OUT", "")) if env("DRY_OUT") else None
+        if out:
+            out.write_text(json.dumps(page, ensure_ascii=False, indent=1), encoding="utf-8")
     else:
-        STATE_FILE.write_text(json.dumps(state, indent=1, ensure_ascii=False), encoding="utf-8")
         DATA_FILE.parent.mkdir(exist_ok=True)
-        DATA_FILE.write_text(json.dumps(data, indent=1, ensure_ascii=False), encoding="utf-8")
+        DATA_FILE.write_text(json.dumps(store.encrypt(db, password)), encoding="utf-8")
 
 
 if __name__ == "__main__":
