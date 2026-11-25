@@ -208,6 +208,7 @@ function renderItems() {
       <div class="meta">${i.time ? fmtFull.format(new Date(i.time)) : ""} · ${esc(i.source)}${i.urgent ? " · Eilmeldung" : ""}</div>
       ${tags ? `<div>${tags}</div>` : ""}
       ${i.what ? `<p><span class="lbl">Worum geht's?</span> ${esc(i.what)}</p>` : ""}
+      ${termsHtml(i.terms)}
       <p><span class="lbl">Typisch:</span> ${esc(i.typical)}</p>
       ${since != null ? `<p><span class="lbl">Seitdem:</span> ${esc(i.symbol)} ${chg(since)}</p>` : ""}
       <a href="${esc(i.link)}" target="_blank" rel="noopener">Original öffnen →</a>
@@ -217,13 +218,18 @@ function renderItems() {
 
 const KIND = { new: "neu gekauft", up: "aufgestockt", down: "reduziert", exits: "komplett verkauft", largest: "unter den größten Positionen" };
 
+function termsHtml(t) {
+  return t && t.length ? `<p><span class="lbl">Begriffe einfach erklärt:</span><br>${t.map(x => "• " + esc(x)).join("<br>")}</p>` : "";
+}
+
 function renderPros(d) {
   const an = (d.analysts || []).filter(a => a.actions);
   const ARROW = { up: "▲", down: "▼", mixed: "●" }, DIRDE = { up: "positiv", down: "negativ", mixed: "gemischt" };
   const acts = an.flatMap(a => a.actions.map(x => ({ ...x, position: a.position })));
   const none = an.filter(a => !a.actions.length).map(a => a.position);
   $("analysts").innerHTML = (acts.length ? acts.map(x => `<div class="card"><div class="t">${ARROW[x.dir]} ${esc(x.position)} <span class="sub">${DIRDE[x.dir]}</span></div>
-      <div><a href="${esc(x.url || "#")}" target="_blank" rel="noopener">${esc(x.headline)}</a></div>
+      <div><a href="${esc(x.url || "#")}" target="_blank" rel="noopener">${esc(x.de || x.headline)}</a></div>
+      ${termsHtml(x.terms)}
       <div class="sub">${esc(x.source || "")} · ${x.date ? new Date(x.date * 1000).toLocaleDateString("de-DE") : ""}</div></div>`).join("")
     : `<div class="empty">Keine Analysten-Meldungen in den letzten 5 Tagen.</div>`)
     + (acts.length && none.length ? `<div class="sub">Ohne neue Analysten-Meldung: ${none.map(esc).join(", ")}</div>` : "")
@@ -251,6 +257,7 @@ function renderPros(d) {
       <div class="t">${esc(i.title)}</div>
       <div class="meta">${i.time ? fmtFull.format(new Date(i.time)) : ""} · ${esc(i.source)}</div>
       <div>${(i.players || []).map(p => `<span class="tag">${esc(p)}</span>`).join("")}${(i.affected || []).map(a => `<span class="tag mine">Dein Depot: ${esc(a)}</span>`).join("")}</div>
+      ${termsHtml(i.terms)}
       <p><span class="lbl">Typisch:</span> ${esc(i.typical)}</p>
       <a href="${esc(i.link)}" target="_blank" rel="noopener">Original öffnen →</a></div>`).join("")
     : `<div class="empty">Noch keine Aussagen gesammelt. Sie erscheinen, sobald Reuters, CNBC & Co. darüber berichten.</div>`;

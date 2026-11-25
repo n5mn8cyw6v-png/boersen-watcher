@@ -22,6 +22,7 @@ from zoneinfo import ZoneInfo
 import requests
 
 import explain
+import translate
 import investors
 import news
 import portfolio
@@ -147,6 +148,7 @@ def fetch_fed(cfg):
             "title": "🏦 Fed: " + title, "what": what, "typical": typical,
             "symbol": "SPY", "affected": [], "urgent": "FOMC statement" in title,
             "source": "Federal Reserve", "link": link,
+            "en": title, "prefix": "🏦 Fed: ",
         })
     return out
 
@@ -171,6 +173,7 @@ def fetch_news(pf, cfg, key, today):
             "typical": explain.news(text), "symbol": (c["affected"] or [None])[0] or ("SPY" if c["macro"] else None),
             "affected": c["affected"], "players": c["players"], "urgent": c["urgent"],
             "source": n.get("source", ""), "link": n.get("url", ""),
+            "en": head, "prefix": prefix,
         })
 
     for n in news.general(key):
@@ -381,12 +384,17 @@ def main():
         guarded(f"13F {name}", check)
     page["investors"] = [inv_state[n] for n in cfg.get("investors", {}) if n in inv_state]
 
+    tr = translate.Translator(state, today.isoformat())
+
     # Analysten: nur Meldungen der letzten 5 Tage, bei jedem Lauf neu
     def load_analysts():
         out = []
         for p in pf["positions"]:
             if p["type"] == "stock":
                 acts = news.analyst_actions(p, fh_key, today)
+                for a in acts:
+                    a["de"] = tr(a["headline"])
+                    a["terms"] = translate.terms(a["headline"], 2)
                 out.append({"position": p["short"], "symbol": p["proxy"], "actions": acts})
         return out
     an = guarded("Analysten (Finnhub)", load_analysts)
@@ -425,7 +433,20 @@ def main():
     prices = {s: q["c"] for s, q in quotes.items()}
     if prices:
         page["quotes"] = prices
+    # Ins Deutsche übersetzen: wichtige Meldungen zuerst (Tageskontingent ist begrenzt)
+    for i in sorted(to_report, key=lambda i: (not i["urgent"], not i["affected"])):
+        if not i.get("en"):
+            continue
+        de = tr(i["en"])
+        if de:
+            i["title"] = i["prefix"] + de
+        if i["kind"] in ("news", "player") and i["what"] and (i["urgent"] or i["affected"]):
+            what_de = tr(i["what"][:300])
+            if what_de:
+                i["what"] = what_de
+        i["terms"] = translate.terms(f"{i['en']} {i.get('what', '')}")
     for i in to_report:
+        i.pop("prefix", None)
         i["time"] = now.isoformat()
         i["price_at"] = prices.get(i.get("symbol"))
         page["items"].insert(0, {k: v for k, v in i.items() if k != "src"})
@@ -434,6 +455,7 @@ def main():
             who = f"Big Player: {', '.join(i.get('players', []))}\n" if i.get("players") else ""
             urgent.append(("🚨 " + i["title"],
                            f"{who}{aff}" + (f"{i['what'][:220]}\n\n" if i["what"] else "")
+                           + (("Begriffe:\n" + "\n".join("• " + t for t in i["terms"]) + "\n\n") if i.get("terms") else "")
                            + f"Typisch: {i['typical']}\nQuelle: {i['source']}", i["link"]))
         else:
             state["pending"].append({"t": i["title"], "a": i["affected"]})
